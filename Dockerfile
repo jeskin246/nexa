@@ -13,10 +13,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     android-tools-adb \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt /app/requirements.txt
+COPY backend/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
-COPY . /app
+COPY backend/ /app/
 
 EXPOSE 8000
 
