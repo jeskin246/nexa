@@ -4,10 +4,10 @@ class NexaConstants {
   static const String appVersion = '0.1.0';
   static const String appTagline = 'Agentic AI Personal OS Assistant';
 
-  // WebSocket & Backend API (Wi-Fi IP for direct physical device connection)
-  static const String serverHost = '10.69.218.128';
-  static const String wsUrl = 'ws://$serverHost:8000/ws';
-  static const String apiBaseUrl = 'http://$serverHost:8000';
+  // Global 24/7 Cloud Backend (Render HTTPS & WSS)
+  static const String serverHost = 'nexa-backend-pqhw.onrender.com';
+  static const String wsUrl = 'wss://$serverHost/ws';
+  static const String apiBaseUrl = 'https://$serverHost';
   static const Duration wsReconnectDelay = Duration(seconds: 3);
   static const Duration wsPingInterval = Duration(seconds: 30);
 

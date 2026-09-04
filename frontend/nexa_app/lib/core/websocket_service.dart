@@ -33,10 +33,10 @@ class WebSocketService extends ChangeNotifier {
       candidateUrls.add(url);
     } else {
       candidateUrls.addAll([
-        NexaConstants.wsUrl,            // ws://192.168.43.128:8000/ws
-        'ws://192.168.43.128:8000/ws',   // Active PC Wi-Fi IP
+        NexaConstants.wsUrl,
+        'wss://nexa-backend-pqhw.onrender.com/ws',
+        'ws://10.69.218.128:8000/ws',
         'ws://127.0.0.1:8000/ws',
-        'ws://10.0.2.2:8000/ws',        // Android emulator fallback
       ]);
     }
 
