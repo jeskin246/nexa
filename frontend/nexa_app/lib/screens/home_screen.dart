@@ -13,6 +13,7 @@ import '../ui/auto_reply_screen.dart';
 import 'settings_screen.dart';
 
 import '../services/scheduled_whatsapp_service.dart';
+import '../core/theme.dart';
 
 /// NEXA Main Futuristic OS Control Center Screen.
 class HomeScreen extends StatefulWidget {
@@ -246,23 +247,74 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  void _handleGoalSubmission(String goal) async {
+    if (_isListeningVoice) setState(() => _isListeningVoice = false);
+    final text = goal.trim();
+    if (text.isEmpty) return;
+
+    final lower = text.toLowerCase();
+    final waService = context.read<ScheduledWhatsAppService>();
+    final agent = context.read<AgentService>();
+
+    // 1. Direct On-Device App Launch Intent (e.g. "open instagram", "launch whatsapp", "open camera", "open youtube")
+    if (lower.startsWith('open ') || lower.startsWith('launch ') || lower.startsWith('start ') || lower.startsWith('go to ')) {
+      final appName = lower
+          .replaceAll(RegExp(r'^(?:open|launch|start|go to)\s+', caseSensitive: false), '')
+          .replaceAll(RegExp(r'\s+(?:app|on phone|on android|please)$', caseSensitive: false), '')
+          .trim();
+
+      if (appName.isNotEmpty && !appName.contains('whatsapp message')) {
+        final success = await waService.launchNativeApp(appName);
+        if (mounted && success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.rocket_launch_rounded, color: Color(0xFF00F2FE), size: 18),
+                  const SizedBox(width: 8),
+                  Text('Launched ${appName.toUpperCase()} ✓', style: const TextStyle(fontWeight: FontWeight.bold)),
+                ],
+              ),
+              backgroundColor: const Color(0xFF141824),
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    } else if (lower.startsWith('play ') && lower.contains('youtube')) {
+      final query = lower
+          .replaceAll('play ', '')
+          .replaceAll('on youtube', '')
+          .replaceAll('in youtube', '')
+          .replaceAll('video of', '')
+          .replaceAll('video', '')
+          .trim();
+      final url = 'https://www.youtube.com/results?search_query=${Uri.encodeComponent(query)}';
+      await waService.launchNativeApp('youtube', url: url);
+    }
+
+    // 2. Submit to Agent Service for AI execution / activity telemetry
+    agent.submitGoal(text);
+  }
+
   @override
   Widget build(BuildContext context) {
     final agent = context.watch<AgentService>();
     final sys = context.watch<SystemMonitorService>();
-    final media = MediaQuery.of(context);
-    final isMobile = media.size.width < 768;
+    final isMobile = MediaQuery.of(context).size.width < 800;
 
     return Scaffold(
+      backgroundColor: NexaTheme.bgDeep,
       body: AnimatedGradientBackground(
         child: SafeArea(
           child: Stack(
             children: [
               Padding(
-                padding: const EdgeInsets.all(16.0),
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                 child: Column(
                   children: [
-                    // Top Telemetry Bar
+                    // Top Telemetry Header
                     SystemTelemetryBar(
                       cpuPercent: sys.cpuPercent,
                       ramPercent: sys.memoryPercent,
@@ -293,10 +345,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     // Bottom Command Input Bar
                     CommandInputBar(
                       controller: _chatInputController,
-                      onSubmit: (goal) {
-                        if (_isListeningVoice) setState(() => _isListeningVoice = false);
-                        agent.submitGoal(goal);
-                      },
+                      onSubmit: _handleGoalSubmission,
                       onVoicePressed: _toggleVoice,
                       onStopPressed: agent.stopAgent,
                       isWorking: agent.state.isActive,

@@ -6,6 +6,7 @@ import android.app.KeyguardManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.util.Log
@@ -198,11 +199,21 @@ class ScheduledWhatsAppPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
                                 data = android.net.Uri.fromParts("package", act.packageName, null)
                                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                             }
-                            act.startActivity(intent)
                         } catch (_: Exception) {}
                     }
                 }
                 result.success(true)
+            }
+            "launchApp" -> {
+                val appName = call.argument<String>("appName")?.lowercase()?.trim() ?: ""
+                val url = call.argument<String>("url") ?: ""
+                val ctx = activity ?: context
+                if (ctx != null) {
+                    val success = launchNativeAppOrUrl(ctx, appName, url)
+                    result.success(success)
+                } else {
+                    result.success(false)
+                }
             }
             "openLockScreenSettings" -> {
                 val act = activity ?: context
@@ -570,5 +581,70 @@ class ScheduledWhatsAppPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
             "sample_rate" to activeSampleRate,
             "byte_count" to 0
         )
+    }
+
+    private fun launchNativeAppOrUrl(ctx: Context, appName: String, url: String): Boolean {
+        if (url.isNotEmpty()) {
+            return try {
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                ctx.startActivity(intent)
+                true
+            } catch (e: Exception) {
+                Log.e(TAG, "Error launching URL $url: ${e.message}")
+                false
+            }
+        }
+
+        val pkg = when {
+            appName.contains("instagram") || appName.contains("insta") -> "com.instagram.android"
+            appName.contains("whatsapp") -> "com.whatsapp"
+            appName.contains("youtube") -> "com.google.android.youtube"
+            appName.contains("chrome") || appName.contains("browser") -> "com.android.chrome"
+            appName.contains("camera") -> "com.android.camera"
+            appName.contains("settings") -> "com.android.settings"
+            appName.contains("maps") -> "com.google.android.apps.maps"
+            appName.contains("playstore") || appName.contains("play store") -> "com.android.vending"
+            appName.contains("spotify") -> "com.spotify.music"
+            appName.contains("telegram") -> "org.telegram.messenger"
+            appName.contains("gmail") -> "com.google.android.gm"
+            appName.contains("zomato") -> "com.application.zomato"
+            appName.contains("swiggy") -> "in.swiggy.android"
+            appName.contains("paytm") -> "net.one97.paytm"
+            appName.contains("phonepe") -> "com.phonepe.app"
+            appName.contains("snapchat") -> "com.snapchat.android"
+            else -> appName
+        }
+
+        try {
+            var intent = ctx.packageManager.getLaunchIntentForPackage(pkg)
+            if (intent == null) {
+                val installed = ctx.packageManager.getInstalledApplications(0)
+                val matched = installed.firstOrNull { 
+                    it.packageName.contains(appName, ignoreCase = true) ||
+                    (ctx.packageManager.getApplicationLabel(it).toString().contains(appName, ignoreCase = true))
+                }
+                if (matched != null) {
+                    intent = ctx.packageManager.getLaunchIntentForPackage(matched.packageName)
+                }
+            }
+            if (intent != null) {
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                ctx.startActivity(intent)
+                Log.d(TAG, "Successfully launched app package: $pkg ✓")
+                return true
+            } else {
+                // Fallback: Open Google Play Store for the app
+                val storeIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/search?q=$appName&c=apps")).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                ctx.startActivity(storeIntent)
+                return true
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error launching app $appName: ${e.message}")
+            return false
+        }
     }
 }

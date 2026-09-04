@@ -58,8 +58,21 @@ class ScheduledWhatsAppService extends ChangeNotifier {
           break;
       }
     });
+  }
 
-    checkDeviceLockState();
+  Future<bool> launchNativeApp(String appName, {String? url}) async {
+    if (kIsWeb || !defaultTargetPlatform.toString().contains('android')) return false;
+    try {
+      final bool? success = await _channel.invokeMethod('launchApp', {
+        'appName': appName,
+        'url': url ?? '',
+      });
+      _addLog('Launched app "$appName" on phone (status: $success)');
+      return success ?? false;
+    } catch (e) {
+      debugPrint('[ScheduledWhatsAppService] launchNativeApp error: $e');
+      return false;
+    }
   }
 
   Future<void> checkDeviceLockState() async {
