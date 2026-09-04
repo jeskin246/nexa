@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  nexa-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - ./backend:/app
+    restart: unless-stopped
+    environment:
+      - NEXA_HOST=0.0.0.0
+      - NEXA_PORT=8000
