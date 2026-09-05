@@ -75,6 +75,21 @@ class ScheduledWhatsAppService extends ChangeNotifier {
     }
   }
 
+  Future<bool> sendWhatsAppDirect({required String contact, required String message}) async {
+    if (kIsWeb || !defaultTargetPlatform.toString().contains('android')) return false;
+    try {
+      final bool? success = await _channel.invokeMethod('sendWhatsAppMessage', {
+        'phone': contact,
+        'message': message,
+      });
+      _addLog('Sent direct WhatsApp message to "$contact"');
+      return success ?? false;
+    } catch (e) {
+      debugPrint('[ScheduledWhatsAppService] sendWhatsAppDirect error: $e');
+      return false;
+    }
+  }
+
   Future<void> checkDeviceLockState() async {
     if (kIsWeb || !defaultTargetPlatform.toString().contains('android')) return;
     try {

@@ -277,6 +277,27 @@ class ScheduledWhatsAppPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
                 val success = scheduleAlarm(jobId, contact, message, timestamp)
                 result.success(success)
             }
+            "sendWhatsAppMessage" -> {
+                val phone = call.argument<String>("phone") ?: ""
+                val message = call.argument<String>("message") ?: ""
+                val ctx = activity ?: context
+                if (ctx != null) {
+                    val taskId = "wa_direct_${System.currentTimeMillis()}"
+                    WhatsAppTaskManager.executeTask(
+                        context = ctx,
+                        taskId = taskId,
+                        executionId = taskId,
+                        recipient = phone,
+                        message = message,
+                        broadcastState = { status, log ->
+                            Log.d(TAG, "Direct WhatsApp [$status]: $log")
+                        }
+                    )
+                    result.success(true)
+                } else {
+                    result.success(false)
+                }
+            }
             "executeScheduledDispatch" -> {
                 val jobId = call.argument<String>("jobId") ?: ""
                 val phone = call.argument<String>("phone") ?: ""
@@ -348,6 +369,17 @@ class ScheduledWhatsAppPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
 
     private fun executeDispatch(jobId: String, phone: String, message: String): Boolean {
         Log.d(TAG, "Executing WhatsApp message dispatch for job $jobId to $phone: '$message'")
+        val ctx = activity ?: context ?: return false
+        WhatsAppTaskManager.executeTask(
+            context = ctx,
+            taskId = jobId,
+            executionId = jobId,
+            recipient = phone,
+            message = message,
+            broadcastState = { status, log ->
+                Log.d(TAG, "WhatsApp dispatch [$status]: $log")
+            }
+        )
         return true
     }
 
@@ -588,6 +620,12 @@ class ScheduledWhatsAppPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
             return try {
                 val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                if (url.contains("youtube.com") || url.contains("youtu.be")) {
+                    try {
+                        ctx.packageManager.getPackageInfo("com.google.android.youtube", 0)
+                        intent.setPackage("com.google.android.youtube")
+                    } catch (_: Exception) {}
                 }
                 ctx.startActivity(intent)
                 true

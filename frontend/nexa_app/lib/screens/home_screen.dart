@@ -256,8 +256,166 @@ class _HomeScreenState extends State<HomeScreen> {
     final waService = context.read<ScheduledWhatsAppService>();
     final agent = context.read<AgentService>();
 
-    // 1. Direct On-Device App Launch Intent (e.g. "open instagram", "launch whatsapp", "open camera", "open youtube")
-    if (lower.startsWith('open ') || lower.startsWith('launch ') || lower.startsWith('start ') || lower.startsWith('go to ')) {
+    // ─── 1. Cross-App Pipelines & Sharing (e.g. "share vj siddhu vlogs video youtube to saritha in whatsapp") ───
+    final isShare = (lower.contains('share') || lower.contains('forward')) &&
+        (lower.contains('youtube') || lower.contains('video') || lower.contains('vlogs') || lower.contains('vlog') || lower.contains('link') || lower.contains('http://') || lower.contains('https://')) &&
+        (lower.contains('whatsapp') || lower.contains('to '));
+
+    if (isShare) {
+      // Extract direct URL if present
+      final directUrlMatch = RegExp(r'(https?://[^\s]+)').firstMatch(text);
+      final directUrl = directUrlMatch?.group(0) ?? '';
+
+      // Extract Recipient
+      final recMatch = RegExp(r'\bto\s+([a-zA-Z0-9_+\s]+?)(?:\s+in\s+whatsapp|\s+on\s+whatsapp|\s+via\s+whatsapp|\s+whatsapp|\s+at\s+\d+|\s+in\s+\d+|\s*$)', caseSensitive: false).firstMatch(text);
+      var recipient = recMatch?.group(1)?.trim() ?? 'Contact';
+      if (['whatsapp', 'youtube', 'video', 'vlogs', 'vlog', 'link'].contains(recipient.toLowerCase())) {
+        recipient = 'Contact';
+      }
+
+      // Extract Delay if Scheduled
+      final timeMatch = RegExp(r'\b(?:in\s+(\d+)\s*(sec|seconds|second|min|mins|minutes|minute|hour|hours)|at\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm)?))\b', caseSensitive: false).firstMatch(text);
+
+      // Extract Topic / Query
+      var topicText = text;
+      if (directUrl.isNotEmpty) topicText = topicText.replaceAll(directUrl, '');
+      final stripWords = ['share', 'send', 'forward', 'link', 'url', 'video of', 'video', 'youtube', 'in whatsapp', 'on whatsapp', 'via whatsapp', 'whatsapp', 'high view', 'highest view', 'most viewed', 'recent', 'latest', 'top'];
+      for (final w in stripWords) {
+        topicText = topicText.replaceAll(RegExp('\\b$w\\b', caseSensitive: false), '');
+      }
+      if (recMatch != null && recipient.isNotEmpty) {
+        topicText = topicText.replaceAll(RegExp('to\\s+${RegExp.escape(recipient)}', caseSensitive: false), '');
+      }
+      if (timeMatch != null) {
+        topicText = topicText.replaceAll(timeMatch.group(0)!, '');
+      }
+      var cleanTopic = topicText.replaceAll(RegExp(r'^(?:of|about|link|url|for)\s+', caseSensitive: false), '').trim();
+      if (cleanTopic.isEmpty) cleanTopic = directUrl.isNotEmpty ? directUrl : 'vj siddhu vlogs';
+
+      final videoUrl = directUrl.isNotEmpty
+          ? directUrl
+          : 'https://www.youtube.com/results?search_query=${Uri.encodeComponent(cleanTopic)}';
+      final messageBody = directUrl.isNotEmpty
+          ? 'Here is the link: $videoUrl'
+          : 'Check out this YouTube video \'$cleanTopic\': $videoUrl';
+
+      if (timeMatch != null) {
+        // Scheduled Share
+        final delaySeconds = _parseDelaySeconds(timeMatch.group(0) ?? 'in 10 seconds');
+        final targetTime = DateTime.now().add(Duration(seconds: delaySeconds));
+        final timeStr = '${targetTime.hour % 12 == 0 ? 12 : targetTime.hour % 12}:${targetTime.minute.toString().padLeft(2, '0')} ${targetTime.hour >= 12 ? 'PM' : 'AM'}';
+        final dateStr = '${targetTime.day} ${_getMonthAbbr(targetTime.month)} ${targetTime.year}';
+
+        await waService.createScheduledJob(
+          contact: recipient,
+          message: messageBody,
+          date: dateStr,
+          time: timeStr,
+          scheduledTimestamp: targetTime.millisecondsSinceEpoch,
+        );
+        _showSuccessSnack('Scheduled Share: "$cleanTopic" to $recipient in ${delaySeconds}s ✓');
+      } else {
+        // Immediate Share
+        await waService.sendWhatsAppDirect(contact: recipient, message: messageBody);
+        _showSuccessSnack('Shared "$cleanTopic" to $recipient on WhatsApp ✓');
+      }
+    }
+    // ─── 2. YouTube Play & Smart Filter Search ─────────────────────────────────
+    else if (lower.startsWith('play ') || lower.startsWith('watch ') || lower.startsWith('stream ') || (lower.contains('youtube') && (lower.contains('play') || lower.contains('search')))) {
+      var query = lower;
+      final stripPatterns = [
+        'play', 'watch', 'stream', 'video of', 'video', 'on youtube', 'in youtube', 'youtube',
+        'on phone', 'on android', 'open', 'search for', 'search in', 'search',
+        'high view', 'highest view', 'highest views', 'most viewed', 'most views',
+        'most popular', 'popular', 'trending', 'recent', 'latest', 'newest', 'new',
+        'top', 'best', 'relevant'
+      ];
+      for (final p in stripPatterns) {
+        query = query.replaceAll(RegExp('\\b$p\\b', caseSensitive: false), '');
+      }
+      final cleanQuery = query.replaceAll(RegExp(r'^(?:for|about|search|of)\s+', caseSensitive: false), '').trim();
+      final finalQuery = cleanQuery.isEmpty ? 'lofi beats' : cleanQuery;
+      final url = 'https://www.youtube.com/results?search_query=${Uri.encodeComponent(finalQuery)}';
+
+      await waService.launchNativeApp('youtube', url: url);
+      _showSuccessSnack('Playing "$finalQuery" on YouTube ✓');
+    }
+    // ─── 3. Scheduled WhatsApp Messaging ──────────────────────────────────────
+    else if (lower.contains('whatsapp') && (lower.contains(' in ') || lower.contains(' at ') || lower.contains('schedule'))) {
+      final timeMatch = RegExp(r'\b(?:in\s+(\d+)\s*(sec|seconds|second|min|mins|minutes|minute|hour|hours)|at\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm)?))\b', caseSensitive: false).firstMatch(text);
+      final delaySeconds = timeMatch != null ? _parseDelaySeconds(timeMatch.group(0)!) : 10;
+      final targetTime = DateTime.now().add(Duration(seconds: delaySeconds));
+
+      // Extract Recipient
+      final recMatch = RegExp(r'\bto\s+([a-zA-Z0-9_+\s]+?)(?=\s+in\s+\d+|\s+at\s+\d+|\s*$)', caseSensitive: false).firstMatch(text);
+      final recipient = recMatch?.group(1)?.trim() ?? 'Contact';
+
+      // Extract Message
+      var msg = 'Hello from NEXA';
+      final quoted = RegExp('["\']([^"\']+)["\']').firstMatch(text);
+      if (quoted != null) {
+        msg = quoted.group(1)!;
+      } else {
+        final sayingMatch = RegExp(r'\bsaying\s+(.+)$', caseSensitive: false).firstMatch(text);
+        if (sayingMatch != null) {
+          msg = sayingMatch.group(1)!;
+        } else {
+          final hiMatch = RegExp(r'\b(?:message|send)\s+([a-zA-Z0-9_\s]+?)\s+to\b', caseSensitive: false).firstMatch(text);
+          if (hiMatch != null) msg = hiMatch.group(1)!.trim();
+        }
+      }
+
+      final timeStr = '${targetTime.hour % 12 == 0 ? 12 : targetTime.hour % 12}:${targetTime.minute.toString().padLeft(2, '0')} ${targetTime.hour >= 12 ? 'PM' : 'AM'}';
+      final dateStr = '${targetTime.day} ${_getMonthAbbr(targetTime.month)} ${targetTime.year}';
+
+      await waService.createScheduledJob(
+        contact: recipient,
+        message: msg,
+        date: dateStr,
+        time: timeStr,
+        scheduledTimestamp: targetTime.millisecondsSinceEpoch,
+      );
+      _showSuccessSnack('Scheduled WhatsApp to $recipient in ${delaySeconds}s ✓');
+    }
+    // ─── 4. Direct WhatsApp Messaging (Single & Multi-Contact) ─────────────────
+    else if (lower.contains('whatsapp') && (lower.contains('send') || lower.contains('message') || lower.contains('to '))) {
+      // Check multi-recipient: 'to "hello" to jeskin and "hi" to anroe'
+      final multiMatches = RegExp('(?:and\\s+)?(?:send\\s+)?(?:whatsapp\\s+)?(?:message\\s+)?(?:to\\s+)?["\']([^"\']+)["\']\\s+to\\s+([a-zA-Z0-9_+\\s]+?)(?=\\s+and\\s+send|\\s+and\\s+["\']|\\s*\$)', caseSensitive: false).allMatches(text).toList();
+
+      if (multiMatches.isNotEmpty) {
+        for (final m in multiMatches) {
+          final msg = m.group(1)?.trim() ?? '';
+          final contact = m.group(2)?.trim() ?? '';
+          if (contact.isNotEmpty && msg.isNotEmpty) {
+            await waService.sendWhatsAppDirect(contact: contact, message: msg);
+          }
+        }
+        _showSuccessSnack('Dispatched WhatsApp to ${multiMatches.length} contacts ✓');
+      } else {
+        // Single Recipient
+        final recMatch = RegExp(r'\bto\s+([a-zA-Z0-9_+\s]+?)(?:\s+in\s+whatsapp|\s+on\s+whatsapp|\s*$)', caseSensitive: false).firstMatch(text);
+        final recipient = recMatch?.group(1)?.trim() ?? 'Contact';
+
+        var msg = 'Hello from NEXA';
+        final quoted = RegExp('["\']([^"\']+)["\']').firstMatch(text);
+        if (quoted != null) {
+          msg = quoted.group(1)!;
+        } else {
+          final sayingMatch = RegExp(r'\bsaying\s+(.+)$', caseSensitive: false).firstMatch(text);
+          if (sayingMatch != null) {
+            msg = sayingMatch.group(1)!;
+          } else {
+            final msgMatch = RegExp(r'\b(?:message|send)\s+([a-zA-Z0-9_\s]+?)\s+to\b', caseSensitive: false).firstMatch(text);
+            if (msgMatch != null) msg = msgMatch.group(1)!.trim();
+          }
+        }
+
+        await waService.sendWhatsAppDirect(contact: recipient, message: msg);
+        _showSuccessSnack('Sent WhatsApp to $recipient: "$msg" ✓');
+      }
+    }
+    // ─── 5. Direct App Launch (e.g. "open instagram", "open camera", "open spotify") ──
+    else if (lower.startsWith('open ') || lower.startsWith('launch ') || lower.startsWith('start ') || lower.startsWith('go to ')) {
       final appName = lower
           .replaceAll(RegExp(r'^(?:open|launch|start|go to)\s+', caseSensitive: false), '')
           .replaceAll(RegExp(r'\s+(?:app|on phone|on android|please)$', caseSensitive: false), '')
@@ -265,37 +423,47 @@ class _HomeScreenState extends State<HomeScreen> {
 
       if (appName.isNotEmpty && !appName.contains('whatsapp message')) {
         final success = await waService.launchNativeApp(appName);
-        if (mounted && success) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Row(
-                children: [
-                  const Icon(Icons.rocket_launch_rounded, color: Color(0xFF00F2FE), size: 18),
-                  const SizedBox(width: 8),
-                  Text('Launched ${appName.toUpperCase()} ✓', style: const TextStyle(fontWeight: FontWeight.bold)),
-                ],
-              ),
-              backgroundColor: const Color(0xFF141824),
-              behavior: SnackBarBehavior.floating,
-              duration: const Duration(seconds: 2),
-            ),
-          );
+        if (success) {
+          _showSuccessSnack('Launched ${appName.toUpperCase()} ✓');
         }
       }
-    } else if (lower.startsWith('play ') && lower.contains('youtube')) {
-      final query = lower
-          .replaceAll('play ', '')
-          .replaceAll('on youtube', '')
-          .replaceAll('in youtube', '')
-          .replaceAll('video of', '')
-          .replaceAll('video', '')
-          .trim();
-      final url = 'https://www.youtube.com/results?search_query=${Uri.encodeComponent(query)}';
-      await waService.launchNativeApp('youtube', url: url);
     }
 
-    // 2. Submit to Agent Service for AI execution / activity telemetry
+    // ─── 6. Submit to Agent Service for AI telemetry & activity stream ─────────
     agent.submitGoal(text);
+  }
+
+  int _parseDelaySeconds(String timeStr) {
+    final lower = timeStr.toLowerCase();
+    final numMatch = RegExp(r'\d+').firstMatch(lower);
+    final val = numMatch != null ? int.tryParse(numMatch.group(0)!) ?? 10 : 10;
+
+    if (lower.contains('min')) return val * 60;
+    if (lower.contains('hour')) return val * 3600;
+    return val;
+  }
+
+  String _getMonthAbbr(int month) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return (month >= 1 && month <= 12) ? months[month - 1] : 'Jan';
+  }
+
+  void _showSuccessSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.check_circle_outline_rounded, color: Color(0xFF00F2FE), size: 18),
+            const SizedBox(width: 8),
+            Expanded(child: Text(message, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13))),
+          ],
+        ),
+        backgroundColor: const Color(0xFF141824),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 3),
+      ),
+    );
   }
 
   @override
