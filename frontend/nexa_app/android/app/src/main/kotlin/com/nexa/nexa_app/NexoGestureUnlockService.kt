@@ -69,116 +69,24 @@ class NexoGestureUnlockService : AccessibilityService() {
 
     private fun attemptWhatsAppSendWithRetry() {
         val handler = Handler(Looper.getMainLooper())
-        val delays = listOf(100L, 400L, 900L, 1600L, 2600L, 3800L, 5000L)
+        val delays = listOf(100L, 500L, 1200L, 2200L, 3500L, 5000L)
 
         for (delay in delays) {
             handler.postDelayed({
-                if (System.currentTimeMillis() - lastClickTime > 2000) {
+                if (System.currentTimeMillis() - lastClickTime > 2500) {
                     val clicked = autoClickWhatsAppSendButton()
                     if (clicked) {
                         lastClickTime = System.currentTimeMillis()
                         Log.i(TAG, "WhatsApp Send button successfully clicked! ✓")
                     } else {
-                        // 1. If contact name search is active, perform search and click top result
-                        val pending = activePendingContactName
-                        if (pending != null) {
-                            performContactSearchAndSelect(pending)
-                        } else {
-                            // 2. If on contact picker / forward screen, click top contact item
-                            val contactClicked = autoClickTopContactInList()
-                            if (contactClicked) {
-                                Log.i(TAG, "Top contact clicked in WhatsApp list! ✓")
-                            }
+                        // If Send button not directly found, attempt searching contact name if present
+                        activePendingContactName?.let { contact ->
+                            performContactSearchAndSelect(contact)
                         }
                     }
                 }
             }, delay)
         }
-    }
-
-    private fun autoClickTopContactInList(): Boolean {
-        val rootNode = rootInActiveWindow ?: return false
-        try {
-            // Strategy 1: Find contact row container or name view IDs
-            val contactIds = arrayOf(
-                "com.whatsapp:id/contact_row_container",
-                "com.whatsapp:id/contact_name",
-                "com.whatsapp:id/conversations_row_contact_name",
-                "com.whatsapp:id/contact_picker_row",
-                "com.whatsapp:id/contactselector_title",
-                "com.whatsapp:id/name"
-            )
-
-            for (id in contactIds) {
-                val nodes = rootNode.findAccessibilityNodeInfosByViewId(id)
-                if (nodes != null && nodes.isNotEmpty()) {
-                    val topNode = nodes[0]
-                    if (clickNodeOrParent(topNode)) {
-                        Log.i(TAG, "Successfully clicked top contact by view ID '$id' ✓")
-                        // Look for floating Next / Send FAB button after selecting contact
-                        clickFloatingNextOrSendButton()
-                        return true
-                    }
-                }
-            }
-
-            // Strategy 2: Check if on contact picker screen (contains "Forward to...", "Select contact", "Frequently contacted")
-            val pickerHeaders = rootNode.findAccessibilityNodeInfosByText("Select contact")
-                .ifEmpty { rootNode.findAccessibilityNodeInfosByText("Forward to") }
-                .ifEmpty { rootNode.findAccessibilityNodeInfosByText("Frequently contacted") }
-                .ifEmpty { rootNode.findAccessibilityNodeInfosByText("Recent chats") }
-
-            if (pickerHeaders != null && pickerHeaders.isNotEmpty()) {
-                val metrics = resources.displayMetrics
-                val topContactX = (metrics.widthPixels * 0.50f).toInt()
-                val topContactY = (metrics.heightPixels * 0.22f).toInt()
-                performTapGesture(topContactX, topContactY)
-                Log.i(TAG, "Fallback gesture tapped top contact at ($topContactX, $topContactY) on contact picker screen ✓")
-
-                // Click floating send FAB after 400ms
-                Handler(Looper.getMainLooper()).postDelayed({
-                    clickFloatingNextOrSendButton()
-                }, 400)
-                return true
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in autoClickTopContactInList: ${e.message}")
-        }
-        return false
-    }
-
-    private fun clickFloatingNextOrSendButton(): Boolean {
-        val rootNode = rootInActiveWindow ?: return false
-        try {
-            val fabIds = arrayOf(
-                "com.whatsapp:id/fab",
-                "com.whatsapp:id/next_btn",
-                "com.whatsapp:id/send",
-                "com.whatsapp:id/action_send"
-            )
-            for (id in fabIds) {
-                val fabNodes = rootNode.findAccessibilityNodeInfosByViewId(id)
-                if (fabNodes != null && fabNodes.isNotEmpty()) {
-                    for (node in fabNodes) {
-                        if (clickNodeOrParent(node)) {
-                            Log.i(TAG, "Successfully clicked WhatsApp FAB button by ID '$id' ✓")
-                            return true
-                        }
-                    }
-                }
-            }
-
-            // Fallback gesture tap on bottom-right FAB area (0.90 * width, 0.92 * height)
-            val metrics = resources.displayMetrics
-            val fabX = (metrics.widthPixels * 0.90f).toInt()
-            val fabY = (metrics.heightPixels * 0.92f).toInt()
-            performTapGesture(fabX, fabY)
-            Log.i(TAG, "Fallback tapped WhatsApp bottom-right FAB button at ($fabX, $fabY) ✓")
-            return true
-        } catch (e: Exception) {
-            Log.e(TAG, "Error clicking FAB button: ${e.message}")
-        }
-        return false
     }
 
     private fun autoClickWhatsAppSendButton(): Boolean {

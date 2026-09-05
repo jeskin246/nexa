@@ -90,6 +90,52 @@ class ScheduledWhatsAppService extends ChangeNotifier {
     }
   }
 
+  Future<List<Map<String, dynamic>>> scanInstalledApps({bool includeSystem = true}) async {
+    if (kIsWeb || !defaultTargetPlatform.toString().contains('android')) return [];
+    try {
+      final res = await _channel.invokeMethod('scanInstalledApps', {
+        'includeSystem': includeSystem,
+      });
+      if (res is List) {
+        final list = res.map((item) => Map<String, dynamic>.from(item as Map)).toList();
+        _addLog('Scanned ${list.length} installed apps on device');
+        return list;
+      }
+    } catch (e) {
+      debugPrint('[ScheduledWhatsAppService] scanInstalledApps error: $e');
+    }
+    return [];
+  }
+
+  Future<Map<String, dynamic>> scanRunningProcesses() async {
+    if (kIsWeb || !defaultTargetPlatform.toString().contains('android')) return {};
+    try {
+      final res = await _channel.invokeMethod('scanRunningProcesses');
+      if (res is Map) {
+        final map = Map<String, dynamic>.from(res);
+        final procCount = map['process_count'] ?? 0;
+        _addLog('Scanned $procCount active running processes on device');
+        return map;
+      }
+    } catch (e) {
+      debugPrint('[ScheduledWhatsAppService] scanRunningProcesses error: $e');
+    }
+    return {};
+  }
+
+  Future<Map<String, dynamic>> getRealDeviceTelemetry() async {
+    if (kIsWeb || !defaultTargetPlatform.toString().contains('android')) return {};
+    try {
+      final res = await _channel.invokeMethod('getDeviceTelemetry');
+      if (res is Map) {
+        return Map<String, dynamic>.from(res);
+      }
+    } catch (e) {
+      debugPrint('[ScheduledWhatsAppService] getRealDeviceTelemetry error: $e');
+    }
+    return {};
+  }
+
   Future<void> checkDeviceLockState() async {
     if (kIsWeb || !defaultTargetPlatform.toString().contains('android')) return;
     try {

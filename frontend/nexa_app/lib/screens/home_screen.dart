@@ -414,7 +414,16 @@ class _HomeScreenState extends State<HomeScreen> {
         _showSuccessSnack('Sent WhatsApp to $recipient: "$msg" ✓');
       }
     }
-    // ─── 5. Direct App Launch (e.g. "open instagram", "open camera", "open spotify") ──
+    // ─── 5. App & Process Scanning Commands ──────────────────────────────────
+    else if ((lower.contains('scan') && (lower.contains('app') || lower.contains('installed') || lower.contains('device'))) || lower == 'list apps' || lower == 'show apps' || lower == 'all apps' || lower == 'installed apps') {
+      _showInstalledAppsModal(context, waService);
+      _showSuccessSnack('Scanning all installed apps on device...');
+    }
+    else if (lower.contains('process') || lower.contains('running app') || lower == 'list processes' || lower == 'show processes' || lower == 'system processes') {
+      _showRunningProcessesModal(context, waService);
+      _showSuccessSnack('Scanning active running processes on device...');
+    }
+    // ─── 6. Direct App Launch (e.g. "open instagram", "open camera", "open spotify") ──
     else if (lower.startsWith('open ') || lower.startsWith('launch ') || lower.startsWith('start ') || lower.startsWith('go to ')) {
       final appName = lower
           .replaceAll(RegExp(r'^(?:open|launch|start|go to)\s+', caseSensitive: false), '')
@@ -429,8 +438,378 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
-    // ─── 6. Submit to Agent Service for AI telemetry & activity stream ─────────
+    // ─── 7. Submit to Agent Service for AI telemetry & activity stream ─────────
     agent.submitGoal(text);
+  }
+
+  void _showInstalledAppsModal(BuildContext context, ScheduledWhatsAppService waService) async {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        String searchQuery = '';
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            return FutureBuilder<List<Map<String, dynamic>>>(
+              future: waService.scanInstalledApps(includeSystem: true),
+              builder: (ctx, snapshot) {
+                final allApps = snapshot.data ?? [];
+                final filtered = searchQuery.isEmpty
+                    ? allApps
+                    : allApps.where((a) =>
+                        (a['name'] ?? '').toString().toLowerCase().contains(searchQuery.toLowerCase()) ||
+                        (a['packageName'] ?? '').toString().toLowerCase().contains(searchQuery.toLowerCase())).toList();
+
+                return Container(
+                  height: MediaQuery.of(context).size.height * 0.85,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0F121C),
+                    borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                    border: Border.all(color: const Color(0xFF00F2FE).withValues(alpha: 0.3)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF00F2FE).withValues(alpha: 0.15),
+                        blurRadius: 30,
+                        spreadRadius: 2,
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    children: [
+                      // Top Handle
+                      Container(
+                        margin: const EdgeInsets.only(top: 12),
+                        width: 44,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.white24,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF00F2FE).withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Icon(Icons.apps_rounded, color: Color(0xFF00F2FE), size: 22),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Installed Applications',
+                                    style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                                  ),
+                                  Text(
+                                    '${allApps.length} packages discovered on device',
+                                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                              onPressed: () => Navigator.pop(ctx),
+                            ),
+                          ],
+                        ),
+                      ),
+                      // Search Bar
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+                        child: TextField(
+                          onChanged: (val) => setModalState(() => searchQuery = val),
+                          style: const TextStyle(color: Colors.white, fontSize: 14),
+                          decoration: InputDecoration(
+                            hintText: 'Search applications or packages...',
+                            hintStyle: const TextStyle(color: Colors.white38, fontSize: 13),
+                            prefixIcon: const Icon(Icons.search_rounded, color: Color(0xFF00F2FE), size: 20),
+                            filled: true,
+                            fillColor: const Color(0xFF181C2B),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      // App List
+                      Expanded(
+                        child: snapshot.connectionState == ConnectionState.waiting
+                            ? const Center(child: CircularProgressIndicator(color: Color(0xFF00F2FE)))
+                            : filtered.isEmpty
+                                ? const Center(child: Text('No applications found', style: TextStyle(color: Colors.white54)))
+                                : ListView.builder(
+                                    itemCount: filtered.length,
+                                    itemBuilder: (ctx, i) {
+                                      final app = filtered[i];
+                                      final name = app['name'] ?? 'App';
+                                      final pkg = app['packageName'] ?? '';
+                                      final isSys = app['isSystem'] == true;
+                                      final hasLauncher = app['hasLauncher'] == true;
+
+                                      return Container(
+                                        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                                        padding: const EdgeInsets.all(12),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF141824),
+                                          borderRadius: BorderRadius.circular(12),
+                                          border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            Container(
+                                              width: 40,
+                                              height: 40,
+                                              decoration: BoxDecoration(
+                                                color: (isSys ? Colors.purpleAccent : const Color(0xFF00F2FE)).withValues(alpha: 0.15),
+                                                borderRadius: BorderRadius.circular(10),
+                                              ),
+                                              child: Icon(
+                                                isSys ? Icons.settings_applications_rounded : Icons.android_rounded,
+                                                color: isSys ? Colors.purpleAccent : const Color(0xFF00F2FE),
+                                                size: 22,
+                                              ),
+                                            ),
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    name,
+                                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                  ),
+                                                  const SizedBox(height: 2),
+                                                  Text(
+                                                    pkg,
+                                                    style: const TextStyle(color: Colors.white38, fontSize: 11),
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                            if (hasLauncher)
+                                              ElevatedButton(
+                                                style: ElevatedButton.styleFrom(
+                                                  backgroundColor: const Color(0xFF00F2FE).withValues(alpha: 0.2),
+                                                  foregroundColor: const Color(0xFF00F2FE),
+                                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                                  elevation: 0,
+                                                ),
+                                                onPressed: () {
+                                                  waService.launchNativeApp(pkg);
+                                                  Navigator.pop(ctx);
+                                                  _showSuccessSnack('Launching $name...');
+                                                },
+                                                child: const Text('Open', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                                              ),
+                                          ],
+                                        ),
+                                      );
+                                    },
+                                  ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showRunningProcessesModal(BuildContext context, ScheduledWhatsAppService waService) async {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return FutureBuilder<Map<String, dynamic>>(
+          future: waService.scanRunningProcesses(),
+          builder: (ctx, snapshot) {
+            final data = snapshot.data ?? {};
+            final procs = (data['processes'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+            final totalRamMb = ((data['total_ram_bytes'] as num?)?.toDouble() ?? 0) / (1024 * 1024);
+            final usedRamMb = ((data['used_ram_bytes'] as num?)?.toDouble() ?? 0) / (1024 * 1024);
+            final ramPercent = (data['ram_percent'] as num?)?.toDouble() ?? 0.0;
+
+            return Container(
+              height: MediaQuery.of(context).size.height * 0.85,
+              decoration: BoxDecoration(
+                color: const Color(0xFF0F121C),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                border: Border.all(color: const Color(0xFF4FACFE).withValues(alpha: 0.3)),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF4FACFE).withValues(alpha: 0.15),
+                    blurRadius: 30,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+              child: Column(
+                children: [
+                  Container(
+                    margin: const EdgeInsets.only(top: 12),
+                    width: 44,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.white24,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF4FACFE).withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Icon(Icons.memory_rounded, color: Color(0xFF4FACFE), size: 22),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'System Process Monitor',
+                                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                              ),
+                              Text(
+                                '${procs.length} active processes | RAM: ${usedRamMb.toStringAsFixed(0)} / ${totalRamMb.toStringAsFixed(0)} MB (${ramPercent.toStringAsFixed(1)}%)',
+                                style: const TextStyle(color: Colors.white54, fontSize: 12),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                          onPressed: () => Navigator.pop(ctx),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // RAM Progress Bar
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(4),
+                          child: LinearProgressIndicator(
+                            value: (ramPercent / 100.0).clamp(0.0, 1.0),
+                            backgroundColor: Colors.white12,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              ramPercent > 85 ? Colors.redAccent : const Color(0xFF4FACFE),
+                            ),
+                            minHeight: 6,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  // Process List
+                  Expanded(
+                    child: snapshot.connectionState == ConnectionState.waiting
+                        ? const Center(child: CircularProgressIndicator(color: Color(0xFF4FACFE)))
+                        : procs.isEmpty
+                            ? const Center(child: Text('No active processes found', style: TextStyle(color: Colors.white54)))
+                            : ListView.builder(
+                                itemCount: procs.length,
+                                itemBuilder: (ctx, i) {
+                                  final p = procs[i];
+                                  final name = p['name'] ?? 'Process';
+                                  final pName = p['processName'] ?? '';
+                                  final pid = p['pid'] ?? 0;
+                                  final importance = p['importance'] ?? 'Active';
+                                  final memMb = (p['memoryUsageMb'] as num?)?.toDouble() ?? 0.0;
+
+                                  return Container(
+                                    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                                    padding: const EdgeInsets.all(12),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF141824),
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                          decoration: BoxDecoration(
+                                            color: Colors.white10,
+                                            borderRadius: BorderRadius.circular(6),
+                                          ),
+                                          child: Text(
+                                            'PID $pid',
+                                            style: const TextStyle(color: Color(0xFF00F2FE), fontSize: 11, fontWeight: FontWeight.bold),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                name,
+                                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                '$pName • $importance',
+                                                style: const TextStyle(color: Colors.white38, fontSize: 11),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        Text(
+                                          '${memMb.toStringAsFixed(1)} MB',
+                                          style: const TextStyle(color: Color(0xFF4FACFE), fontWeight: FontWeight.bold, fontSize: 12),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   int _parseDelaySeconds(String timeStr) {

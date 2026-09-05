@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import '../core/websocket_service.dart';
 
 /// Periodically requests telemetry data and maintains system status.
@@ -35,9 +36,21 @@ class SystemMonitorService extends ChangeNotifier {
 
   void _startPolling() {
     _pollTimer?.cancel();
-    _pollTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+    _pollTimer = Timer.periodic(const Duration(seconds: 4), (_) async {
       if (_ws.isConnected) {
         _ws.requestSystemInfo();
+      } else if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+        // Standalone on-device telemetry fallback
+        try {
+          const channel = MethodChannel('com.nexa.nexa_app/scheduled_whatsapp');
+          final res = await channel.invokeMethod('getDeviceTelemetry');
+          if (res is Map) {
+            _handleMessage({
+              'type': 'system_data',
+              'data': Map<String, dynamic>.from(res),
+            });
+          }
+        } catch (_) {}
       }
     });
   }
