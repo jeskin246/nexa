@@ -631,6 +631,114 @@ class ScheduledWhatsAppService extends ChangeNotifier {
     }
   }
 
+  // ─── NEXA AI Keyboard & Inbuilt Chatbox Enhancer ───────────────────────
+
+  Future<bool> openInputMethodSettings() async {
+    if (kIsWeb || !defaultTargetPlatform.toString().contains('android')) return false;
+    try {
+      final bool? success = await _channel.invokeMethod('openInputMethodSettings');
+      return success ?? false;
+    } catch (e) {
+      debugPrint('[ScheduledWhatsAppService] openInputMethodSettings error: $e');
+      return false;
+    }
+  }
+
+  Future<bool> toggleFloatingAiToolbar(bool enabled) async {
+    if (kIsWeb || !defaultTargetPlatform.toString().contains('android')) return false;
+    try {
+      final bool? success = await _channel.invokeMethod('toggleFloatingAiToolbar', {'enabled': enabled});
+      _addLog('NEXA AI Chatbox Enhancer: ${enabled ? "ENABLED" : "DISABLED"}');
+      notifyListeners();
+      return success ?? false;
+    } catch (e) {
+      debugPrint('[ScheduledWhatsAppService] toggleFloatingAiToolbar error: $e');
+      return false;
+    }
+  }
+
+  Future<bool> isFloatingAiEnabled() async {
+    if (kIsWeb || !defaultTargetPlatform.toString().contains('android')) return true;
+    try {
+      final bool? enabled = await _channel.invokeMethod('isFloatingAiEnabled');
+      return enabled ?? true;
+    } catch (e) {
+      return true;
+    }
+  }
+
+  Future<String> enhanceText({
+    required String text,
+    String tone = 'professional',
+    String? targetLanguage,
+  }) async {
+    if (text.trim().isEmpty) return text;
+
+    // 1. Try Backend API first
+    try {
+      final uri = Uri.parse('$baseUrl/api/ai/enhance-text');
+      final bodyMap = <String, dynamic>{
+        'text': text,
+        'tone': tone,
+      };
+      if (targetLanguage != null) {
+        bodyMap['target_language'] = targetLanguage;
+      }
+
+      final response = await http
+          .post(
+            uri,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode(bodyMap),
+          )
+          .timeout(const Duration(seconds: 4));
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final enhanced = data['enhanced_text'] as String?;
+        if (enhanced != null && enhanced.isNotEmpty) {
+          _addLog('NEXA AI Enhanced text ($tone) ✓');
+          return enhanced;
+        }
+      }
+    } catch (e) {
+      debugPrint('[ScheduledWhatsAppService] Remote enhance API fallback: $e');
+    }
+
+    // 2. Fallback to Native Android MethodChannel / Local Model
+    if (!kIsWeb && defaultTargetPlatform.toString().contains('android')) {
+      try {
+        final args = <String, dynamic>{
+          'text': text,
+          'tone': tone,
+        };
+        if (targetLanguage != null) {
+          args['target_language'] = targetLanguage;
+        }
+        final String? enhanced = await _channel.invokeMethod('enhanceText', args);
+        if (enhanced != null && enhanced.isNotEmpty) {
+          return enhanced;
+        }
+      } catch (e) {
+        debugPrint('[ScheduledWhatsAppService] Native enhance error: $e');
+      }
+    }
+
+    // 3. Fallback pure Dart offline logic
+    var res = text.trim();
+    if (res.isNotEmpty) {
+      res = res[0].toUpperCase() + res.substring(1);
+    }
+    if (tone == 'friendly') return 'Hey! $res 😊';
+    if (tone == 'concise') {
+      final clean = res.replaceAll(RegExp(r'[.!?]+$'), '');
+      return '$clean.';
+    }
+    if (targetLanguage == 'tamil') return 'வணக்கம்: $res';
+    if (targetLanguage == 'hindi') return 'नमस्ते: $res';
+    return res.endsWith('.') ? res : '$res.';
+  }
+
   // ─── Helpers & Simulations ────────────────────────────────────────────────
 
   void simulateLockState(bool locked) {

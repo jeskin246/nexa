@@ -11,6 +11,7 @@ class SystemTelemetryBar extends StatelessWidget {
   final bool isConnected;
   final VoidCallback onSettingsPressed;
   final VoidCallback? onAutoReplyPressed;
+  final VoidCallback? onAiKeyboardPressed;
 
   const SystemTelemetryBar({
     super.key,
@@ -21,6 +22,7 @@ class SystemTelemetryBar extends StatelessWidget {
     required this.isConnected,
     required this.onSettingsPressed,
     this.onAutoReplyPressed,
+    this.onAiKeyboardPressed,
   });
 
   @override
@@ -115,9 +117,16 @@ class SystemTelemetryBar extends StatelessWidget {
             ),
           ),
 
+          if (onAiKeyboardPressed != null)
+            IconButton(
+              icon: const Icon(Icons.keyboard_outlined, size: 20, color: Color(0xFF00F2FE)),
+              onPressed: onAiKeyboardPressed,
+              tooltip: 'NEXA AI Keyboard & Chatbox Enhancer',
+            ),
+
           if (onAutoReplyPressed != null)
             IconButton(
-              icon: const Icon(Icons.bolt_rounded, size: 20, color: Color(0xFF00F2FE)),
+              icon: const Icon(Icons.bolt_rounded, size: 20, color: Color(0xFF4FACFE)),
               onPressed: onAutoReplyPressed,
               tooltip: 'NEXA Power',
             ),

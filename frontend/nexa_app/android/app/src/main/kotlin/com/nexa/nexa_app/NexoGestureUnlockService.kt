@@ -2,17 +2,34 @@ package com.nexa.nexa_app
 
 import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color
+import android.graphics.PixelFormat
 import android.graphics.Path
+import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.util.DisplayMetrics
 import android.util.Log
+import android.util.TypedValue
+import android.view.Gravity
+import android.view.MotionEvent
+import android.view.View
+import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.widget.Button
+import android.widget.HorizontalScrollView
+import android.widget.LinearLayout
+import android.widget.TextView
+import android.widget.Toast
+import java.util.concurrent.Executors
 
 class NexoGestureUnlockService : AccessibilityService() {
 
@@ -23,6 +40,7 @@ class NexoGestureUnlockService : AccessibilityService() {
         var instance: NexoGestureUnlockService? = null
         var lastClickTime: Long = 0
         var activePendingContactName: String? = null
+        var isFloatingAiEnabled = true
 
         fun isServiceRunning(): Boolean = instance != null
 
@@ -43,13 +61,21 @@ class NexoGestureUnlockService : AccessibilityService() {
         }
     }
 
+    private val bgExecutor = Executors.newSingleThreadExecutor()
+    private var windowManager: WindowManager? = null
+    private var floatingOverlayView: View? = null
+    private var activeEditableNode: AccessibilityNodeInfo? = null
+    private var isExpanded = false
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
+        windowManager = getSystemService(Context.WINDOW_SERVICE) as? WindowManager
         Log.d(TAG, "NexoGestureUnlockService connected and operational!")
     }
 
     override fun onDestroy() {
+        removeFloatingOverlay()
         instance = null
         super.onDestroy()
     }
@@ -58,7 +84,18 @@ class NexoGestureUnlockService : AccessibilityService() {
         if (event == null) return
         val pkgName = event.packageName?.toString() ?: return
 
-        // Auto-send WhatsApp message when WhatsApp or WhatsApp Business comes to foreground
+        // 1. Auto-detect active Chatbox / Input Field across ALL apps
+        if (isFloatingAiEnabled && (event.eventType == AccessibilityEvent.TYPE_VIEW_FOCUSED ||
+            event.eventType == AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED ||
+            event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED)) {
+            val source = event.source
+            if (source != null && (source.isEditable || source.className?.contains("EditText") == true)) {
+                activeEditableNode = source
+                showFloatingAiPill()
+            }
+        }
+
+        // 2. Auto-send WhatsApp message when WhatsApp or WhatsApp Business comes to foreground
         if (pkgName == "com.whatsapp" || pkgName == "com.whatsapp.w4b") {
             val now = System.currentTimeMillis()
             if (now - lastClickTime < 2500) return
@@ -266,6 +303,167 @@ class NexoGestureUnlockService : AccessibilityService() {
         }
 
         return false
+    }
+
+    fun showFloatingAiPill() {
+        if (!isFloatingAiEnabled) return
+        Handler(Looper.getMainLooper()).post {
+            try {
+                if (floatingOverlayView != null) return@post
+                val wm = windowManager ?: (getSystemService(Context.WINDOW_SERVICE) as? WindowManager) ?: return@post
+
+                val params = WindowManager.LayoutParams(
+                    WindowManager.LayoutParams.WRAP_CONTENT,
+                    WindowManager.LayoutParams.WRAP_CONTENT,
+                    WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                    PixelFormat.TRANSLUCENT
+                ).apply {
+                    gravity = Gravity.TOP or Gravity.END
+                    x = 20
+                    y = 350
+                }
+
+                val container = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(16, 12, 16, 12)
+                    background = GradientDrawable().apply {
+                        setColor(Color.parseColor("#E60D111A"))
+                        cornerRadius = 28f
+                        setStroke(3, Color.parseColor("#00F2FE"))
+                    }
+                    elevation = 16f
+                }
+
+                // AI Pill Button
+                val pillBtn = TextView(this).apply {
+                    text = "✨ NEXA AI"
+                    setTextColor(Color.parseColor("#00F2FE"))
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                    setTypeface(null, android.graphics.Typeface.BOLD)
+                    setPadding(12, 6, 12, 6)
+                }
+                container.addView(pillBtn)
+
+                // Sub-actions layout (hidden initially)
+                val actionsLayout = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    visibility = View.GONE
+                }
+
+                val options = listOf(
+                    Triple("✨ Fix", "grammar_fix", null),
+                    Triple("👔 Pro", "professional", null),
+                    Triple("😊 Friendly", "friendly", null),
+                    Triple("⚡ Short", "concise", null),
+                    Triple("🇮🇳 தமிழ்", "translate", "tamil"),
+                    Triple("🇮🇳 हिंदी", "translate", "hindi")
+                )
+
+                for ((label, tone, lang) in options) {
+                    val btn = TextView(this).apply {
+                        text = label
+                        setTextColor(Color.WHITE)
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                        setPadding(14, 6, 14, 6)
+                        background = GradientDrawable().apply {
+                            setColor(Color.parseColor("#223348"))
+                            cornerRadius = 18f
+                            setStroke(1, Color.parseColor("#384F6B"))
+                        }
+                        layoutParams = LinearLayout.LayoutParams(
+                            LinearLayout.LayoutParams.WRAP_CONTENT,
+                            LinearLayout.LayoutParams.WRAP_CONTENT
+                        ).apply {
+                            setMargins(6, 0, 6, 0)
+                        }
+                        setOnClickListener {
+                            enhanceAndReplaceInActiveChatbox(tone, lang)
+                            actionsLayout.visibility = View.GONE
+                            isExpanded = false
+                        }
+                    }
+                    actionsLayout.addView(btn)
+                }
+
+                // Close Button
+                val closeBtn = TextView(this).apply {
+                    text = " ✕ "
+                    setTextColor(Color.parseColor("#94A3B8"))
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                    setPadding(8, 6, 8, 6)
+                    setOnClickListener {
+                        removeFloatingOverlay()
+                    }
+                }
+                actionsLayout.addView(closeBtn)
+
+                container.addView(actionsLayout)
+
+                pillBtn.setOnClickListener {
+                    isExpanded = !isExpanded
+                    actionsLayout.visibility = if (isExpanded) View.VISIBLE else View.GONE
+                }
+
+                wm.addView(container, params)
+                floatingOverlayView = container
+                Log.i(TAG, "Floating NEXA AI Pill overlay displayed ✓")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error displaying floating AI pill: ${e.message}")
+            }
+        }
+    }
+
+    private fun enhanceAndReplaceInActiveChatbox(tone: String, targetLang: String?) {
+        val node = activeEditableNode ?: run {
+            Toast.makeText(this, "No active chatbox found", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val originalText = node.text?.toString() ?: ""
+        if (originalText.isBlank()) {
+            Toast.makeText(this, "Type a message in the chatbox first!", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        Toast.makeText(this, "NEXA: Enhancing text...", Toast.LENGTH_SHORT).show()
+
+        bgExecutor.execute {
+            val keyboardService = NexaKeyboardService()
+            val enhanced = keyboardService.performEnhancement(originalText, tone, targetLang)
+
+            Handler(Looper.getMainLooper()).post {
+                try {
+                    val arguments = Bundle().apply {
+                        putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, enhanced)
+                    }
+                    val success = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
+                    if (success) {
+                        Toast.makeText(this, "Enhanced by NEXA AI ✓", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(this, "NEXA: $enhanced", Toast.LENGTH_LONG).show()
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to set enhanced text: ${e.message}")
+                }
+            }
+        }
+    }
+
+    fun removeFloatingOverlay() {
+        Handler(Looper.getMainLooper()).post {
+            try {
+                floatingOverlayView?.let {
+                    windowManager?.removeView(it)
+                    floatingOverlayView = null
+                    isExpanded = false
+                    Log.d(TAG, "Floating NEXA AI overlay removed")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error removing floating overlay: ${e.message}")
+            }
+        }
     }
 
     override fun onInterrupt() {

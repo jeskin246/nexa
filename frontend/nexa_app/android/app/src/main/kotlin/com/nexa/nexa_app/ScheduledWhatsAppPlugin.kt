@@ -314,6 +314,60 @@ class ScheduledWhatsAppPlugin : FlutterPlugin, MethodCallHandler, ActivityAware,
                 cancelAllAlarms()
                 result.success(true)
             }
+            "openInputMethodSettings" -> {
+                val act = activity ?: context
+                if (act != null) {
+                    try {
+                        val intent = Intent(android.provider.Settings.ACTION_INPUT_METHOD_SETTINGS).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                        }
+                        act.startActivity(intent)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        try {
+                            val intent = Intent(android.provider.Settings.ACTION_SETTINGS).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            act.startActivity(intent)
+                            result.success(true)
+                        } catch (e2: Exception) {
+                            result.error("ERROR", e2.message, null)
+                        }
+                    }
+                } else {
+                    result.success(false)
+                }
+            }
+            "toggleFloatingAiToolbar" -> {
+                val enabled = call.argument<Boolean>("enabled") ?: true
+                NexoGestureUnlockService.isFloatingAiEnabled = enabled
+                if (!enabled) {
+                    NexoGestureUnlockService.instance?.removeFloatingOverlay()
+                } else {
+                    NexoGestureUnlockService.instance?.showFloatingAiPill()
+                }
+                result.success(true)
+            }
+            "isFloatingAiEnabled" -> {
+                result.success(NexoGestureUnlockService.isFloatingAiEnabled)
+            }
+            "enhanceText" -> {
+                val text = call.argument<String>("text") ?: ""
+                val tone = call.argument<String>("tone") ?: "professional"
+                val targetLang = call.argument<String>("target_language")
+                val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+                executor.execute {
+                    val service = NexaKeyboardService()
+                    val enhanced = service.performEnhancement(text, tone, targetLang)
+                    activity?.runOnUiThread {
+                        result.success(enhanced)
+                    } ?: run {
+                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                            result.success(enhanced)
+                        }
+                    }
+                }
+            }
             "scanInstalledApps" -> {
                 val ctx = activity ?: context
                 if (ctx != null) {

@@ -100,6 +100,20 @@
                 android:resource="@xml/accessibility_service_config" />
         </service>
 
+        <!-- NEXA Inbuilt AI Keyboard Service -->
+        <service
+            android:name=".NexaKeyboardService"
+            android:label="NEXA AI Keyboard"
+            android:permission="android.permission.BIND_INPUT_METHOD"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.view.InputMethod" />
+            </intent-filter>
+            <meta-data
+                android:name="android.view.im"
+                android:resource="@xml/method" />
+        </service>
+
         <!-- NEXA OS System Automation Receivers -->
         <receiver
             android:name=".NexaBootReceiver"

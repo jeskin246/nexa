@@ -171,6 +171,9 @@ app.include_router(voice_transcribe_router)
 from app.api.auto_reply import router as auto_reply_router
 app.include_router(auto_reply_router)
 
+from app.routers.ai_enhancer import router as ai_enhancer_router
+app.include_router(ai_enhancer_router)
+
 
 # ─── REST Endpoints ────────────────────────────────────────────────────────────
 

@@ -11,6 +11,7 @@ import '../widgets/panels/system_telemetry.dart';
 import '../widgets/panels/task_card.dart';
 import '../ui/auto_reply_screen.dart';
 import 'settings_screen.dart';
+import 'ai_keyboard_screen.dart';
 
 import '../services/scheduled_whatsapp_service.dart';
 import '../core/theme.dart';
@@ -423,7 +424,15 @@ class _HomeScreenState extends State<HomeScreen> {
       _showRunningProcessesModal(context, waService);
       _showSuccessSnack('Scanning active running processes on device...');
     }
-    // ─── 6. Direct App Launch (e.g. "open instagram", "open camera", "open spotify") ──
+    // ─── 6. AI Keyboard & Chatbox Enhancer ──────────────────────────────────
+    else if (lower.contains('keyboard') || lower.contains('grammar') || lower.contains('chatbox') || lower.contains('enhance text') || lower.contains('enhancer')) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const AiKeyboardScreen()),
+      );
+      _showSuccessSnack('Opening NEXA AI Keyboard & Enhancer Studio ✓');
+    }
+    // ─── 7. Direct App Launch (e.g. "open instagram", "open camera", "open spotify") ──
     else if (lower.startsWith('open ') || lower.startsWith('launch ') || lower.startsWith('start ') || lower.startsWith('go to ')) {
       final appName = lower
           .replaceAll(RegExp(r'^(?:open|launch|start|go to)\s+', caseSensitive: false), '')
@@ -869,6 +878,13 @@ class _HomeScreenState extends State<HomeScreen> {
                       activeWindow: sys.activeWindow,
                       isConnected: true,
                       onSettingsPressed: _openSettings,
+                      onAiKeyboardPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (context) => const AiKeyboardScreen()),
+                        );
+                      },
                       onAutoReplyPressed: () {
                         Navigator.push(
                           context,
