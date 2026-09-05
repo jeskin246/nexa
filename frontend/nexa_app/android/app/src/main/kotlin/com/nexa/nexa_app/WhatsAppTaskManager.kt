@@ -108,16 +108,24 @@ object WhatsAppTaskManager {
 
     private fun resolvePhoneNumber(context: Context, recipient: String): String {
         val digitsOnly = recipient.replace("[^0-9]".toRegex(), "")
-        if (digitsOnly.length >= 7) {
-            return digitsOnly
+        if (digitsOnly.length >= 10) {
+            return if (digitsOnly.length == 10 && (digitsOnly.startsWith("9") || digitsOnly.startsWith("8") || digitsOnly.startsWith("7") || digitsOnly.startsWith("6"))) {
+                "91$digitsOnly"
+            } else {
+                digitsOnly
+            }
         }
 
+        val cleanRecipient = recipient.trim()
+        if (cleanRecipient.isEmpty()) return ""
+
         try {
-            val cursor: Cursor? = context.contentResolver.query(
+            // Strategy 1: Exact match on Display Name
+            var cursor: Cursor? = context.contentResolver.query(
                 ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
-                arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER),
-                "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ?",
-                arrayOf("%$recipient%"),
+                arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER, ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME),
+                "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} = ?",
+                arrayOf(cleanRecipient),
                 null
             )
             cursor?.use { c ->
@@ -126,9 +134,33 @@ object WhatsAppTaskManager {
                     if (numIdx != -1) {
                         val rawNumber = c.getString(numIdx)
                         val phone = rawNumber.replace("[^0-9]".toRegex(), "")
-                        if (phone.length >= 7) {
-                            Log.i(TAG, "Resolved contact name '$recipient' to device phone number: $phone")
-                            return phone
+                        if (phone.length >= 10) {
+                            val finalPhone = if (phone.length == 10 && (phone.startsWith("9") || phone.startsWith("8") || phone.startsWith("7") || phone.startsWith("6"))) "91$phone" else phone
+                            Log.i(TAG, "Exact resolved contact '$cleanRecipient' to phone: $finalPhone")
+                            return finalPhone
+                        }
+                    }
+                }
+            }
+
+            // Strategy 2: Prefix / Substring Match on Display Name
+            cursor = context.contentResolver.query(
+                ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER, ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME),
+                "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ?",
+                arrayOf("%$cleanRecipient%"),
+                null
+            )
+            cursor?.use { c ->
+                if (c.moveToFirst()) {
+                    val numIdx = c.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+                    if (numIdx != -1) {
+                        val rawNumber = c.getString(numIdx)
+                        val phone = rawNumber.replace("[^0-9]".toRegex(), "")
+                        if (phone.length >= 10) {
+                            val finalPhone = if (phone.length == 10 && (phone.startsWith("9") || phone.startsWith("8") || phone.startsWith("7") || phone.startsWith("6"))) "91$phone" else phone
+                            Log.i(TAG, "Fuzzy resolved contact '$cleanRecipient' to phone: $finalPhone")
+                            return finalPhone
                         }
                     }
                 }
