@@ -61,68 +61,161 @@ class NexoGestureUnlockService : AccessibilityService() {
         // Auto-send WhatsApp message when WhatsApp or WhatsApp Business comes to foreground
         if (pkgName == "com.whatsapp" || pkgName == "com.whatsapp.w4b") {
             val now = System.currentTimeMillis()
-            if (now - lastClickTime < 1500) return
+            if (now - lastClickTime < 2500) return
 
             attemptWhatsAppSendWithRetry()
         }
     }
 
-    private var isProcessingContact = false
-
     private fun attemptWhatsAppSendWithRetry() {
         val handler = Handler(Looper.getMainLooper())
+        val delays = listOf(100L, 400L, 900L, 1600L, 2600L, 3800L, 5000L)
 
-        // If we have a pending contact name to search & select, handle that and do NOT click send yet
-        val pendingContact = activePendingContactName
-        if (!pendingContact.isNullOrEmpty()) {
-            if (!isProcessingContact) {
-                isProcessingContact = true
-                handler.postDelayed({
-                    performContactSearchAndSelect(pendingContact)
-                }, 300)
-            }
-            return
-        }
-
-        val delays = listOf(200L, 600L, 1200L, 2000L, 3200L, 4500L)
         for (delay in delays) {
             handler.postDelayed({
-                val clicked = autoClickWhatsAppSendButton()
-                if (clicked) {
-                    lastClickTime = System.currentTimeMillis()
-                    Log.i(TAG, "WhatsApp Send button successfully clicked! ✓")
+                if (System.currentTimeMillis() - lastClickTime > 2000) {
+                    val clicked = autoClickWhatsAppSendButton()
+                    if (clicked) {
+                        lastClickTime = System.currentTimeMillis()
+                        Log.i(TAG, "WhatsApp Send button successfully clicked! ✓")
+                    } else {
+                        // 1. If contact name search is active, perform search and click top result
+                        val pending = activePendingContactName
+                        if (pending != null) {
+                            performContactSearchAndSelect(pending)
+                        } else {
+                            // 2. If on contact picker / forward screen, click top contact item
+                            val contactClicked = autoClickTopContactInList()
+                            if (contactClicked) {
+                                Log.i(TAG, "Top contact clicked in WhatsApp list! ✓")
+                            }
+                        }
+                    }
                 }
             }, delay)
         }
     }
 
-    private fun autoClickWhatsAppSendButton(): Boolean {
+    private fun autoClickTopContactInList(): Boolean {
         val rootNode = rootInActiveWindow ?: return false
         try {
-            // Strategy 1: Find by resource ID for message Send button in chat
-            val sendIds = arrayOf("com.whatsapp:id/send", "com.whatsapp.w4b:id/send", "com.whatsapp:id/send_btn")
-            for (id in sendIds) {
+            // Strategy 1: Find contact row container or name view IDs
+            val contactIds = arrayOf(
+                "com.whatsapp:id/contact_row_container",
+                "com.whatsapp:id/contact_name",
+                "com.whatsapp:id/conversations_row_contact_name",
+                "com.whatsapp:id/contact_picker_row",
+                "com.whatsapp:id/contactselector_title",
+                "com.whatsapp:id/name"
+            )
+
+            for (id in contactIds) {
                 val nodes = rootNode.findAccessibilityNodeInfosByViewId(id)
                 if (nodes != null && nodes.isNotEmpty()) {
-                    for (node in nodes) {
+                    val topNode = nodes[0]
+                    if (clickNodeOrParent(topNode)) {
+                        Log.i(TAG, "Successfully clicked top contact by view ID '$id' ✓")
+                        // Look for floating Next / Send FAB button after selecting contact
+                        clickFloatingNextOrSendButton()
+                        return true
+                    }
+                }
+            }
+
+            // Strategy 2: Check if on contact picker screen (contains "Forward to...", "Select contact", "Frequently contacted")
+            val pickerHeaders = rootNode.findAccessibilityNodeInfosByText("Select contact")
+                .ifEmpty { rootNode.findAccessibilityNodeInfosByText("Forward to") }
+                .ifEmpty { rootNode.findAccessibilityNodeInfosByText("Frequently contacted") }
+                .ifEmpty { rootNode.findAccessibilityNodeInfosByText("Recent chats") }
+
+            if (pickerHeaders != null && pickerHeaders.isNotEmpty()) {
+                val metrics = resources.displayMetrics
+                val topContactX = (metrics.widthPixels * 0.50f).toInt()
+                val topContactY = (metrics.heightPixels * 0.22f).toInt()
+                performTapGesture(topContactX, topContactY)
+                Log.i(TAG, "Fallback gesture tapped top contact at ($topContactX, $topContactY) on contact picker screen ✓")
+
+                // Click floating send FAB after 400ms
+                Handler(Looper.getMainLooper()).postDelayed({
+                    clickFloatingNextOrSendButton()
+                }, 400)
+                return true
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in autoClickTopContactInList: ${e.message}")
+        }
+        return false
+    }
+
+    private fun clickFloatingNextOrSendButton(): Boolean {
+        val rootNode = rootInActiveWindow ?: return false
+        try {
+            val fabIds = arrayOf(
+                "com.whatsapp:id/fab",
+                "com.whatsapp:id/next_btn",
+                "com.whatsapp:id/send",
+                "com.whatsapp:id/action_send"
+            )
+            for (id in fabIds) {
+                val fabNodes = rootNode.findAccessibilityNodeInfosByViewId(id)
+                if (fabNodes != null && fabNodes.isNotEmpty()) {
+                    for (node in fabNodes) {
                         if (clickNodeOrParent(node)) {
-                            Log.i(TAG, "Successfully auto-clicked WhatsApp Send button by View ID ($id) ✓")
+                            Log.i(TAG, "Successfully clicked WhatsApp FAB button by ID '$id' ✓")
                             return true
                         }
                     }
                 }
             }
 
-            // Strategy 2: Find by Content Description ("Send", "send", "Send message")
-            val sendDescriptions = arrayOf("Send", "send", "Send message")
-            for (desc in sendDescriptions) {
-                val nodes = rootNode.findAccessibilityNodeInfosByText(desc)
-                if (nodes != null && nodes.isNotEmpty()) {
-                    for (node in nodes) {
-                        if (clickNodeOrParent(node)) {
-                            Log.i(TAG, "Successfully auto-clicked WhatsApp Send button by Text ($desc) ✓")
-                            return true
-                        }
+            // Fallback gesture tap on bottom-right FAB area (0.90 * width, 0.92 * height)
+            val metrics = resources.displayMetrics
+            val fabX = (metrics.widthPixels * 0.90f).toInt()
+            val fabY = (metrics.heightPixels * 0.92f).toInt()
+            performTapGesture(fabX, fabY)
+            Log.i(TAG, "Fallback tapped WhatsApp bottom-right FAB button at ($fabX, $fabY) ✓")
+            return true
+        } catch (e: Exception) {
+            Log.e(TAG, "Error clicking FAB button: ${e.message}")
+        }
+        return false
+    }
+
+    private fun autoClickWhatsAppSendButton(): Boolean {
+        val rootNode = rootInActiveWindow ?: return false
+        try {
+            // Strategy 1: Find by resource ID (com.whatsapp:id/send or com.whatsapp.w4b:id/send)
+            val sendById = rootNode.findAccessibilityNodeInfosByViewId("com.whatsapp:id/send")
+                .ifEmpty { rootNode.findAccessibilityNodeInfosByViewId("com.whatsapp.w4b:id/send") }
+
+            if (sendById != null && sendById.isNotEmpty()) {
+                for (node in sendById) {
+                    if (node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                        Log.i(TAG, "Successfully auto-clicked WhatsApp Send button by View ID ✓")
+                        return true
+                    }
+                    val parent = node.parent
+                    if (parent != null && parent.isClickable && parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                        Log.i(TAG, "Successfully auto-clicked WhatsApp Send button parent by View ID ✓")
+                        return true
+                    }
+                }
+            }
+
+            // Strategy 2: Find by Content Description ("Send", "send")
+            val sendByText = rootNode.findAccessibilityNodeInfosByText("Send")
+                .ifEmpty { rootNode.findAccessibilityNodeInfosByText("send") }
+
+            if (sendByText != null && sendByText.isNotEmpty()) {
+                for (node in sendByText) {
+                    if (node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                        Log.i(TAG, "Successfully auto-clicked WhatsApp Send button by Text ✓")
+                        return true
+                    }
+                    val parent = node.parent
+                    if (parent != null && parent.isClickable && parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                        Log.i(TAG, "Successfully auto-clicked WhatsApp Send button parent by Text ✓")
+                        return true
                     }
                 }
             }
@@ -135,141 +228,48 @@ class NexoGestureUnlockService : AccessibilityService() {
         }
     }
 
-    private fun performContactSearchAndSelect(contactName: String) {
-        val handler = Handler(Looper.getMainLooper())
-        val rootNode = rootInActiveWindow
-        if (rootNode == null) {
-            isProcessingContact = false
-            return
-        }
-
+    private fun performContactSearchAndSelect(contactName: String): Boolean {
+        val rootNode = rootInActiveWindow ?: return false
         try {
-            // Check if search input is already open
-            val directInput = rootNode.findAccessibilityNodeInfosByViewId("com.whatsapp:id/search_src_text")
-            if (directInput != null && directInput.isNotEmpty()) {
-                val arguments = Bundle().apply {
-                    putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, contactName)
-                }
-                directInput[0].performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
-                Log.i(TAG, "Entered contact name '$contactName' into visible search box ✓")
-                scheduleSearchResultSelection(contactName)
-                return
-            }
+            // Find search button icon in WhatsApp header
+            val searchNodes = rootNode.findAccessibilityNodeInfosByViewId("com.whatsapp:id/menuitem_search")
+                .ifEmpty { rootNode.findAccessibilityNodeInfosByText("Search") }
 
-            // Find and click search button icon
-            val searchBtnIds = arrayOf(
-                "com.whatsapp:id/menuitem_search",
-                "com.whatsapp:id/search_button",
-                "com.whatsapp:id/action_search",
-                "com.whatsapp:id/search_holder",
-                "com.whatsapp:id/search_icon"
-            )
-            var clickedSearch = false
-            for (id in searchBtnIds) {
-                val nodes = rootNode.findAccessibilityNodeInfosByViewId(id)
-                if (nodes != null && nodes.isNotEmpty()) {
-                    if (clickNodeOrParent(nodes[0])) {
-                        clickedSearch = true
-                        Log.i(TAG, "Clicked WhatsApp search button by ID ($id) ✓")
-                        break
-                    }
-                }
-            }
+            if (searchNodes != null && searchNodes.isNotEmpty()) {
+                val searchBtn = searchNodes[0]
+                if (searchBtn.isClickable && searchBtn.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                    Log.i(TAG, "Clicked WhatsApp search button for contact '$contactName'")
 
-            if (!clickedSearch) {
-                val searchTexts = arrayOf("Search", "Search contacts", "Search…")
-                for (txt in searchTexts) {
-                    val nodes = rootNode.findAccessibilityNodeInfosByText(txt)
-                    if (nodes != null && nodes.isNotEmpty()) {
-                        if (clickNodeOrParent(nodes[0])) {
-                            clickedSearch = true
-                            Log.i(TAG, "Clicked WhatsApp search button by Text ($txt) ✓")
-                            break
+                    // Wait 300ms for search input box
+                    Handler(Looper.getMainLooper()).postDelayed({
+                        val searchInput = rootInActiveWindow?.findAccessibilityNodeInfosByViewId("com.whatsapp:id/search_src_text")
+                        if (searchInput != null && searchInput.isNotEmpty()) {
+                            val arguments = Bundle().apply {
+                                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, contactName)
+                            }
+                            searchInput[0].performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
+                            Log.i(TAG, "Entered contact name '$contactName' into search box")
+
+                            // Wait 700ms for search results to load, then click contact in search results
+                            Handler(Looper.getMainLooper()).postDelayed({
+                                val clicked = clickSearchResultNode(contactName)
+                                if (!clicked) {
+                                    // Tap top result area at (0.5 * width, 0.25 * height) as fallback
+                                    val metrics = resources.displayMetrics
+                                    performTapGesture((metrics.widthPixels * 0.5f).toInt(), (metrics.heightPixels * 0.25f).toInt())
+                                    Log.i(TAG, "Fallback tapped top search result item for '$contactName' ✓")
+                                }
+                                activePendingContactName = null
+                            }, 700)
                         }
-                    }
+                    }, 300)
+                    return true
                 }
             }
-
-            // Wait 400ms for search input to animate, then type text
-            handler.postDelayed({
-                val currentRoot = rootInActiveWindow
-                val searchInput = currentRoot?.findAccessibilityNodeInfosByViewId("com.whatsapp:id/search_src_text")
-                    ?: currentRoot?.findAccessibilityNodeInfosByText("Search")
-                if (searchInput != null && searchInput.isNotEmpty()) {
-                    val arguments = Bundle().apply {
-                        putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, contactName)
-                    }
-                    searchInput[0].performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
-                    Log.i(TAG, "Entered contact name '$contactName' into search box ✓")
-                }
-                scheduleSearchResultSelection(contactName)
-            }, 400)
-
         } catch (e: Exception) {
             Log.e(TAG, "Error in performContactSearchAndSelect: ${e.message}")
-            isProcessingContact = false
         }
-    }
-
-    private fun scheduleSearchResultSelection(contactName: String) {
-        val handler = Handler(Looper.getMainLooper())
-        // Wait 700ms for search results to render
-        handler.postDelayed({
-            val clicked = clickSearchResultNode(contactName)
-            if (!clicked) {
-                // Fallback tap top search result item at (0.5 * width, 0.22 * height)
-                val metrics = resources.displayMetrics
-                performTapGesture((metrics.widthPixels * 0.5f).toInt(), (metrics.heightPixels * 0.22f).toInt())
-                Log.i(TAG, "Fallback tapped top search result item for '$contactName' ✓")
-            }
-
-            // After selecting contact, if on Contact Picker screen, tap green Next / Send FAB button
-            handler.postDelayed({
-                clickContactPickerFabOrSend()
-                activePendingContactName = null
-                isProcessingContact = false
-
-                // Try tapping final send button inside opened chat with progressive retries
-                val sendDelays = listOf(600L, 1200L, 2000L, 3000L, 4500L)
-                for (d in sendDelays) {
-                    handler.postDelayed({
-                        val sent = autoClickWhatsAppSendButton()
-                        if (sent) {
-                            lastClickTime = System.currentTimeMillis()
-                            Log.i(TAG, "Successfully tapped final WhatsApp send button in opened chat! ✓")
-                        }
-                    }, d)
-                }
-            }, 600)
-        }, 700)
-    }
-
-    private fun clickContactPickerFabOrSend(): Boolean {
-        val root = rootInActiveWindow ?: return false
-        val fabIds = arrayOf("com.whatsapp:id/fab", "com.whatsapp:id/send", "com.whatsapp:id/next_btn", "com.whatsapp:id/send_btn")
-        for (id in fabIds) {
-            val nodes = root.findAccessibilityNodeInfosByViewId(id)
-            if (nodes != null && nodes.isNotEmpty()) {
-                if (clickNodeOrParent(nodes[0])) {
-                    Log.i(TAG, "Clicked Contact Picker Forward/Send FAB by ID ($id) ✓")
-                    return true
-                }
-            }
-        }
-        val descs = arrayOf("Send", "Next", "Forward")
-        for (d in descs) {
-            val nodes = root.findAccessibilityNodeInfosByText(d)
-            if (nodes != null && nodes.isNotEmpty()) {
-                if (clickNodeOrParent(nodes[0])) {
-                    Log.i(TAG, "Clicked Contact Picker Forward/Send FAB by Text ($d) ✓")
-                    return true
-                }
-            }
-        }
-        // Fallback tap bottom-right corner for FAB
-        val metrics = resources.displayMetrics
-        performTapGesture((metrics.widthPixels * 0.88f).toInt(), (metrics.heightPixels * 0.90f).toInt())
-        return true
+        return false
     }
 
     private fun clickSearchResultNode(contactName: String): Boolean {
@@ -279,13 +279,8 @@ class NexoGestureUnlockService : AccessibilityService() {
         val textNodes = root.findAccessibilityNodeInfosByText(contactName)
         if (textNodes != null && textNodes.isNotEmpty()) {
             for (node in textNodes) {
-                val rect = android.graphics.Rect()
-                node.getBoundsInScreen(rect)
-                if (!rect.isEmpty && rect.centerX() > 0 && rect.centerY() > 0) {
-                    performTapGesture(rect.centerX(), rect.centerY())
-                    val screenWidth = resources.displayMetrics.widthPixels
-                    performTapGesture(screenWidth / 2, rect.centerY())
-                    Log.i(TAG, "Tapped contact search result at (${rect.centerX()}, ${rect.centerY()}) and center ($screenWidth/2, ${rect.centerY()}) ✓")
+                if (clickNodeOrParent(node)) {
+                    Log.i(TAG, "Clicked contact search result node by text '$contactName' ✓")
                     return true
                 }
             }
@@ -294,22 +289,17 @@ class NexoGestureUnlockService : AccessibilityService() {
         // Strategy 2: Find contact container view IDs
         val ids = arrayOf(
             "com.whatsapp:id/contact_row_container",
-            "com.whatsapp:id/conversations_row_contact_name",
             "com.whatsapp:id/contact_name",
             "com.whatsapp:id/contact_title",
-            "com.whatsapp:id/contactselector_title",
-            "com.whatsapp:id/contact_picker_row",
-            "com.whatsapp:id/contact_item"
+            "com.whatsapp:id/conversations_row_contact_name",
+            "com.whatsapp:id/contactselector_title"
         )
         for (id in ids) {
             val nodes = root.findAccessibilityNodeInfosByViewId(id)
             if (nodes != null && nodes.isNotEmpty()) {
                 for (node in nodes) {
-                    val rect = android.graphics.Rect()
-                    node.getBoundsInScreen(rect)
-                    if (!rect.isEmpty && rect.centerX() > 0 && rect.centerY() > 0) {
-                        performTapGesture(rect.centerX(), rect.centerY())
-                        Log.i(TAG, "Tapped contact container by ID ($id) at (${rect.centerX()}, ${rect.centerY()}) ✓")
+                    if (clickNodeOrParent(node)) {
+                        Log.i(TAG, "Clicked contact search result node by view ID '$id' ✓")
                         return true
                     }
                 }
@@ -321,27 +311,15 @@ class NexoGestureUnlockService : AccessibilityService() {
     private fun clickNodeOrParent(node: AccessibilityNodeInfo?): Boolean {
         if (node == null) return false
         if (node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-            Log.i(TAG, "Clicked node via ACTION_CLICK ✓")
             return true
         }
         var parent = node.parent
         while (parent != null) {
             if (parent.isClickable && parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
-                Log.i(TAG, "Clicked parent node via ACTION_CLICK ✓")
                 return true
             }
             parent = parent.parent
         }
-
-        // Physical Screen Touch Gesture using exact bounding box coordinates
-        val rect = android.graphics.Rect()
-        node.getBoundsInScreen(rect)
-        if (!rect.isEmpty && rect.centerX() > 0 && rect.centerY() > 0 && rect.centerY() < resources.displayMetrics.heightPixels) {
-            performTapGesture(rect.centerX(), rect.centerY())
-            Log.i(TAG, "Dispatched physical screen tap at (${rect.centerX()}, ${rect.centerY()}) for node ✓")
-            return true
-        }
-
         return false
     }
 
