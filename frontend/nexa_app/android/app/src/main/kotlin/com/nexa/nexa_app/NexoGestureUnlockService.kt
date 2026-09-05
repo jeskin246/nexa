@@ -227,10 +227,17 @@ class NexoGestureUnlockService : AccessibilityService() {
                 activePendingContactName = null
                 isProcessingContact = false
 
-                // Try tapping final send button inside opened chat
-                handler.postDelayed({
-                    autoClickWhatsAppSendButton()
-                }, 800)
+                // Try tapping final send button inside opened chat with progressive retries
+                val sendDelays = listOf(500L, 1000L, 1800L, 2800L, 4000L)
+                for (d in sendDelays) {
+                    handler.postDelayed({
+                        val sent = autoClickWhatsAppSendButton()
+                        if (sent) {
+                            lastClickTime = System.currentTimeMillis()
+                            Log.i(TAG, "Successfully tapped final WhatsApp send button in opened chat! ✓")
+                        }
+                    }, d)
+                }
             }, 500)
         }, 600)
     }
@@ -304,15 +311,27 @@ class NexoGestureUnlockService : AccessibilityService() {
     private fun clickNodeOrParent(node: AccessibilityNodeInfo?): Boolean {
         if (node == null) return false
         if (node.isClickable && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+            Log.i(TAG, "Clicked node via ACTION_CLICK ✓")
             return true
         }
         var parent = node.parent
         while (parent != null) {
             if (parent.isClickable && parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
+                Log.i(TAG, "Clicked parent node via ACTION_CLICK ✓")
                 return true
             }
             parent = parent.parent
         }
+
+        // Physical Screen Touch Gesture using exact bounding box coordinates
+        val rect = android.graphics.Rect()
+        node.getBoundsInScreen(rect)
+        if (!rect.isEmpty && rect.centerX() > 0 && rect.centerY() > 0 && rect.centerY() < resources.displayMetrics.heightPixels) {
+            performTapGesture(rect.centerX(), rect.centerY())
+            Log.i(TAG, "Dispatched physical screen tap at (${rect.centerX()}, ${rect.centerY()}) for node ✓")
+            return true
+        }
+
         return false
     }
 
