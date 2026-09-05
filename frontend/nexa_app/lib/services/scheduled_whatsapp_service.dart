@@ -672,44 +672,14 @@ class ScheduledWhatsAppService extends ChangeNotifier {
     String tone = 'professional',
     String? targetLanguage,
   }) async {
-    if (text.trim().isEmpty) return text;
+    final trimmed = text.trim();
+    if (trimmed.isEmpty) return text;
 
-    // 1. Try Backend API first
-    try {
-      final uri = Uri.parse('$baseUrl/api/ai/enhance-text');
-      final bodyMap = <String, dynamic>{
-        'text': text,
-        'tone': tone,
-      };
-      if (targetLanguage != null) {
-        bodyMap['target_language'] = targetLanguage;
-      }
-
-      final response = await http
-          .post(
-            uri,
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode(bodyMap),
-          )
-          .timeout(const Duration(seconds: 4));
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final enhanced = data['enhanced_text'] as String?;
-        if (enhanced != null && enhanced.isNotEmpty) {
-          _addLog('NEXA AI Enhanced text ($tone) ✓');
-          return enhanced;
-        }
-      }
-    } catch (e) {
-      debugPrint('[ScheduledWhatsAppService] Remote enhance API fallback: $e');
-    }
-
-    // 2. Fallback to Native Android MethodChannel / Local Model
+    // 1. Prioritize Native Android MethodChannel Engine (uses direct Live Translation + NLP)
     if (!kIsWeb && defaultTargetPlatform.toString().contains('android')) {
       try {
         final args = <String, dynamic>{
-          'text': text,
+          'text': trimmed,
           'tone': tone,
         };
         if (targetLanguage != null) {
@@ -717,6 +687,7 @@ class ScheduledWhatsAppService extends ChangeNotifier {
         }
         final String? enhanced = await _channel.invokeMethod('enhanceText', args);
         if (enhanced != null && enhanced.isNotEmpty) {
+          _addLog('NEXA AI Enhanced ($tone) ✓');
           return enhanced;
         }
       } catch (e) {
@@ -724,18 +695,58 @@ class ScheduledWhatsAppService extends ChangeNotifier {
       }
     }
 
-    // 3. Fallback pure Dart offline logic
-    var res = text.trim();
+    // 2. Direct Live Google Translate for Translation Tones
+    if (tone == 'translate' || targetLanguage != null) {
+      try {
+        final langCode = targetLanguage == 'hindi'
+            ? 'hi'
+            : (targetLanguage == 'spanish'
+                ? 'es'
+                : (targetLanguage == 'french'
+                    ? 'fr'
+                    : (targetLanguage == 'german' ? 'de' : 'ta')));
+        final url = Uri.parse(
+            'https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=$langCode&dt=t&q=${Uri.encodeComponent(trimmed)}');
+        final resp = await http.get(url, headers: {'User-Agent': 'Mozilla/5.0'}).timeout(const Duration(seconds: 4));
+        if (resp.statusCode == 200) {
+          final data = jsonDecode(resp.body);
+          if (data is List && data.isNotEmpty && data[0] is List) {
+            final segments = data[0] as List;
+            final translated = segments.map((s) => s[0].toString()).join('').trim();
+            if (translated.isNotEmpty) {
+              _addLog('NEXA Live Translation ($langCode) ✓');
+              return translated;
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('[ScheduledWhatsAppService] Translation error: $e');
+      }
+    }
+
+    // 3. Fallback pure Dart NLP logic
+    var res = trimmed;
+    final typos = {
+      r'\bu\b': 'you', r'\bur\b': 'your', r'\br\b': 'are', r'\bpls\b': 'please',
+      r'\bplz\b': 'please', r'\bthx\b': 'thanks', r'\btomm?or?r?ow\b': 'tomorrow',
+      r'\bmeting\b': 'meeting', r'\brecieve\b': 'receive', r'\bim\b': 'I am',
+      r'\bi\b': 'I', r'\bive\b': 'I have', r'\bcheck docs?\b': 'please review the documentation',
+      r'\bi will come\b': 'I will be attending', r'\bgimme\b': 'please provide',
+      r'\basap\b': 'at your earliest convenience', r'\bfree today\b': 'available for discussion today'
+    };
+    for (final entry in typos.entries) {
+      res = res.replaceAll(RegExp(entry.key, caseSensitive: false), entry.value);
+    }
     if (res.isNotEmpty) {
       res = res[0].toUpperCase() + res.substring(1);
     }
-    if (tone == 'friendly') return 'Hey! $res 😊';
+
+    if (tone == 'friendly') return 'Hey! ${res.replaceAll(RegExp(r'[.!?]+$'), '')} 😊';
+    if (tone == 'casual') return '${res.replaceAll(RegExp(r'[.!?]+$'), '')} 😄';
     if (tone == 'concise') {
       final clean = res.replaceAll(RegExp(r'[.!?]+$'), '');
       return '$clean.';
     }
-    if (targetLanguage == 'tamil') return 'வணக்கம்: $res';
-    if (targetLanguage == 'hindi') return 'नमस्ते: $res';
     return res.endsWith('.') ? res : '$res.';
   }
 

@@ -320,20 +320,20 @@ class NexoGestureUnlockService : AccessibilityService() {
                     PixelFormat.TRANSLUCENT
                 ).apply {
                     gravity = Gravity.TOP or Gravity.END
-                    x = 20
-                    y = 350
+                    x = 16
+                    y = 320
                 }
 
                 val container = LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
                     gravity = Gravity.CENTER_VERTICAL
-                    setPadding(16, 12, 16, 12)
+                    setPadding(14, 10, 14, 10)
                     background = GradientDrawable().apply {
-                        setColor(Color.parseColor("#E60D111A"))
+                        setColor(Color.parseColor("#EE0D111A"))
                         cornerRadius = 28f
                         setStroke(3, Color.parseColor("#00F2FE"))
                     }
-                    elevation = 16f
+                    elevation = 20f
                 }
 
                 // AI Pill Button
@@ -346,19 +346,30 @@ class NexoGestureUnlockService : AccessibilityService() {
                 }
                 container.addView(pillBtn)
 
-                // Sub-actions layout (hidden initially)
-                val actionsLayout = LinearLayout(this).apply {
-                    orientation = LinearLayout.HORIZONTAL
+                // Sub-actions layout inside HorizontalScrollView
+                val actionsScrollView = HorizontalScrollView(this).apply {
+                    isHorizontalScrollBarEnabled = false
                     visibility = View.GONE
                 }
 
+                val actionsLayout = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                }
+
                 val options = listOf(
-                    Triple("✨ Fix", "grammar_fix", null),
-                    Triple("👔 Pro", "professional", null),
+                    Triple("✨ Fix Grammar", "grammar_fix", null),
+                    Triple("👔 Professional", "professional", null),
                     Triple("😊 Friendly", "friendly", null),
-                    Triple("⚡ Short", "concise", null),
+                    Triple("⚡ Concise", "concise", null),
+                    Triple("🗣️ Casual", "casual", null),
                     Triple("🇮🇳 தமிழ்", "translate", "tamil"),
-                    Triple("🇮🇳 हिंदी", "translate", "hindi")
+                    Triple("🇮🇳 हिंदी", "translate", "hindi"),
+                    Triple("🇪🇸 Spanish", "translate", "spanish"),
+                    Triple("🇫🇷 French", "translate", "french"),
+                    Triple("🇩🇪 German", "translate", "german"),
+                    Triple("🇮🇳 Telugu", "translate", "telugu"),
+                    Triple("🇮🇳 Malayalam", "translate", "malayalam")
                 )
 
                 for ((label, tone, lang) in options) {
@@ -366,21 +377,21 @@ class NexoGestureUnlockService : AccessibilityService() {
                         text = label
                         setTextColor(Color.WHITE)
                         setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-                        setPadding(14, 6, 14, 6)
+                        setPadding(16, 6, 16, 6)
                         background = GradientDrawable().apply {
-                            setColor(Color.parseColor("#223348"))
-                            cornerRadius = 18f
+                            setColor(Color.parseColor("#1F2C3F"))
+                            cornerRadius = 16f
                             setStroke(1, Color.parseColor("#384F6B"))
                         }
                         layoutParams = LinearLayout.LayoutParams(
                             LinearLayout.LayoutParams.WRAP_CONTENT,
                             LinearLayout.LayoutParams.WRAP_CONTENT
                         ).apply {
-                            setMargins(6, 0, 6, 0)
+                            setMargins(4, 0, 4, 0)
                         }
                         setOnClickListener {
                             enhanceAndReplaceInActiveChatbox(tone, lang)
-                            actionsLayout.visibility = View.GONE
+                            actionsScrollView.visibility = View.GONE
                             isExpanded = false
                         }
                     }
@@ -392,18 +403,19 @@ class NexoGestureUnlockService : AccessibilityService() {
                     text = " ✕ "
                     setTextColor(Color.parseColor("#94A3B8"))
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-                    setPadding(8, 6, 8, 6)
+                    setPadding(10, 6, 10, 6)
                     setOnClickListener {
                         removeFloatingOverlay()
                     }
                 }
                 actionsLayout.addView(closeBtn)
+                actionsScrollView.addView(actionsLayout)
 
-                container.addView(actionsLayout)
+                container.addView(actionsScrollView)
 
                 pillBtn.setOnClickListener {
                     isExpanded = !isExpanded
-                    actionsLayout.visibility = if (isExpanded) View.VISIBLE else View.GONE
+                    actionsScrollView.visibility = if (isExpanded) View.VISIBLE else View.GONE
                 }
 
                 wm.addView(container, params)
@@ -415,9 +427,44 @@ class NexoGestureUnlockService : AccessibilityService() {
         }
     }
 
+    private fun findCurrentEditableNode(): AccessibilityNodeInfo? {
+        val root = rootInActiveWindow ?: return activeEditableNode
+
+        // 1. Try focused input node
+        val focused = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+        if (focused != null && (focused.isEditable || focused.className?.contains("EditText") == true)) {
+            return focused
+        }
+
+        // 2. Search for any focused & editable node
+        val foundFocused = searchEditableNode(root, requireFocused = true)
+        if (foundFocused != null) return foundFocused
+
+        // 3. Search for any editable node with text
+        val foundWithText = searchEditableNode(root, requireFocused = false)
+        if (foundWithText != null) return foundWithText
+
+        return activeEditableNode
+    }
+
+    private fun searchEditableNode(node: AccessibilityNodeInfo?, requireFocused: Boolean): AccessibilityNodeInfo? {
+        if (node == null) return null
+        if (node.isEditable || node.className?.contains("EditText") == true) {
+            if (!requireFocused || node.isFocused) {
+                return node
+            }
+        }
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i)
+            val res = searchEditableNode(child, requireFocused)
+            if (res != null) return res
+        }
+        return null
+    }
+
     private fun enhanceAndReplaceInActiveChatbox(tone: String, targetLang: String?) {
-        val node = activeEditableNode ?: run {
-            Toast.makeText(this, "No active chatbox found", Toast.LENGTH_SHORT).show()
+        val node = findCurrentEditableNode() ?: run {
+            Toast.makeText(this, "No active chatbox found. Tap the chatbox first!", Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -427,7 +474,8 @@ class NexoGestureUnlockService : AccessibilityService() {
             return
         }
 
-        Toast.makeText(this, "NEXA: Enhancing text...", Toast.LENGTH_SHORT).show()
+        val actionDesc = if (targetLang != null) targetLang.replaceFirstChar { it.uppercase() } else tone.replaceFirstChar { it.uppercase() }
+        Toast.makeText(this, "NEXA: Enhancing ($actionDesc)...", Toast.LENGTH_SHORT).show()
 
         bgExecutor.execute {
             val keyboardService = NexaKeyboardService()
@@ -438,11 +486,25 @@ class NexoGestureUnlockService : AccessibilityService() {
                     val arguments = Bundle().apply {
                         putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, enhanced)
                     }
-                    val success = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
+                    var success = node.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, arguments)
+
+                    if (!success) {
+                        // Fallback: Copy to clipboard and paste
+                        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                        if (clipboard != null) {
+                            val clip = ClipData.newPlainText("NEXA_AI", enhanced)
+                            clipboard.setPrimaryClip(clip)
+                            success = node.performAction(AccessibilityNodeInfo.ACTION_PASTE)
+                        }
+                    }
+
                     if (success) {
                         Toast.makeText(this, "Enhanced by NEXA AI ✓", Toast.LENGTH_SHORT).show()
                     } else {
-                        Toast.makeText(this, "NEXA: $enhanced", Toast.LENGTH_LONG).show()
+                        // Copy to clipboard as ultimate guarantee
+                        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+                        clipboard?.setPrimaryClip(ClipData.newPlainText("NEXA_AI", enhanced))
+                        Toast.makeText(this, "NEXA: Copied to clipboard! (Paste in chat)", Toast.LENGTH_LONG).show()
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to set enhanced text: ${e.message}")
