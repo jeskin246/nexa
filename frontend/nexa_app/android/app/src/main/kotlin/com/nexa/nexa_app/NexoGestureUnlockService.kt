@@ -363,11 +363,14 @@ class NexoGestureUnlockService : AccessibilityService() {
                     Triple("😊 Friendly", "friendly", null),
                     Triple("⚡ Concise", "concise", null),
                     Triple("🗣️ Casual", "casual", null),
+                    Triple("🇯🇵 日本語", "translate", "japanese"),
                     Triple("🇮🇳 தமிழ்", "translate", "tamil"),
                     Triple("🇮🇳 हिंदी", "translate", "hindi"),
                     Triple("🇪🇸 Spanish", "translate", "spanish"),
                     Triple("🇫🇷 French", "translate", "french"),
                     Triple("🇩🇪 German", "translate", "german"),
+                    Triple("🇰🇷 한국어", "translate", "korean"),
+                    Triple("🇸🇦 العربية", "translate", "arabic"),
                     Triple("🇮🇳 Telugu", "translate", "telugu"),
                     Triple("🇮🇳 Malayalam", "translate", "malayalam")
                 )

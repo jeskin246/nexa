@@ -38,11 +38,32 @@ class EnhanceResponse(BaseModel):
 # ─── Tone & Grammar Enhancement Rule Engine ──────────────────────────────────
 
 def _fix_grammar_and_spelling(text: str) -> str:
-    cleaned = text.strip()
-    if not cleaned:
+    res = text.strip()
+    if not res:
         return ""
 
-    # Common spelling/chat fixes
+    # 1. Missing "am" in "I <name/noun/adj>" e.g. "i jeskin" -> "I am Jeskin"
+    i_noun = re.match(r"^i\s+([a-zA-Z]+)$", res, flags=re.IGNORECASE)
+    if i_noun:
+        word = i_noun.group(1)
+        non_aux = {
+            "will", "can", "have", "am", "do", "did", "want", "need", "think",
+            "know", "see", "feel", "went", "saw", "got", "like", "love", "hate",
+            "hope", "wish", "mean", "understand", "agree", "believe", "came", "come"
+        }
+        if word.lower() not in non_aux:
+            res = f"I am {word.capitalize()}."
+            return res
+
+    # Inline greeting intro
+    res = re.sub(
+        r"\b(hello|hi|hey)\s+i\s+([a-zA-Z]+)\b",
+        lambda m: f"{m.group(1).capitalize()}, I am {m.group(2).capitalize()}",
+        res,
+        flags=re.IGNORECASE,
+    )
+
+    # 2. Chat Abbreviations & Typos
     replacements = {
         r"\bu\b": "you",
         r"\bur\b": "your",
@@ -51,104 +72,169 @@ def _fix_grammar_and_spelling(text: str) -> str:
         r"\bplz\b": "please",
         r"\bthx\b": "thanks",
         r"\bty\b": "thank you",
+        r"\btnx\b": "thanks",
         r"\bbtw\b": "by the way",
         r"\bidk\b": "I do not know",
         r"\bomg\b": "oh my god",
         r"\btomm?or?r?ow\b": "tomorrow",
+        r"\btmrw\b": "tomorrow",
         r"\byestarday\b": "yesterday",
         r"\bmeting\b": "meeting",
         r"\brecieve\b": "receive",
+        r"\brecieved\b": "received",
         r"\bseperate\b": "separate",
+        r"\bdefinately\b": "definitely",
         r"\buntill\b": "until",
+        r"\balot\b": "a lot",
+        r"\bnoone\b": "no one",
+        r"\bbcoz\b": "because",
+        r"\bcuz\b": "because",
+        r"\bcoz\b": "because",
         r"\bgonna\b": "going to",
         r"\bwanna\b": "want to",
-        r"\bgotta\b": "have to",
+        r"\bgotta\b": "got to",
+        r"\bkinda\b": "kind of",
         r"\bim\b": "I am",
         r"\bi\b": "I",
+        r"\bive\b": "I have",
+        r"\bill\b": "I will",
         r"\bdont\b": "do not",
         r"\bcant\b": "cannot",
         r"\bwont\b": "will not",
+        r"\bdidnt\b": "did not",
         r"\bhavent\b": "have not",
         r"\barent\b": "are not",
         r"\bisnt\b": "is not",
+        r"\bwhere u\b": "where are you",
+        r"\bwhere you\b": "where are you",
+        r"\bhow u\b": "how are you",
+        r"\bhow you\b": "how are you",
+        r"\bwho u\b": "who are you",
+        r"\bwho you\b": "who are you",
+        r"\bwhat u doing\b": "what are you doing",
+        r"\bwhy u\b": "why are you",
+        r"\btell to me\b": "tell me",
+        r"\bdiscuss about\b": "discuss",
+        r"\brevert back\b": "reply",
+        r"\bmy self\b": "I am",
     }
 
     for pattern, rep in replacements.items():
-        cleaned = re.sub(pattern, rep, cleaned, flags=re.IGNORECASE)
+        res = re.sub(pattern, rep, res, flags=re.IGNORECASE)
 
-    # Capitalize first letter
-    if cleaned:
-        cleaned = cleaned[0].upper() + cleaned[1:]
+    # 3. Subject-Verb agreement
+    res = re.sub(r"\b(he|she|it)\s+go\b", r"\1 goes", res, flags=re.IGNORECASE)
+    res = re.sub(r"\b(he|she|it)\s+have\b", r"\1 has", res, flags=re.IGNORECASE)
+    res = re.sub(r"\b(they|we|you)\s+is\b", r"\1 are", res, flags=re.IGNORECASE)
 
-    # Ensure ending punctuation
-    if cleaned and not cleaned[-1] in ".!?":
-        cleaned += "."
+    # Capitalize sentences
+    sentences = re.split(r"(?<=[.!?])\s+", res)
+    res = " ".join(s[0].upper() + s[1:] if s else "" for s in sentences)
 
-    return cleaned
+    if res and res[-1] not in ".!?":
+        res += "."
+
+    return res
 
 
 def _transform_to_professional(text: str) -> str:
-    base = _fix_grammar_and_spelling(text).rstrip(".!?")
-    
-    # Professional phrasing replacements
+    cleaned = _fix_grammar_and_spelling(text)
+    lower = cleaned.lower().strip(".!? ")
+
+    # 1. Self-introduction
+    name_match = re.match(r"^(?:i am|my name is|myself|this is|i)\s+([a-zA-Z]+)$", text.strip(), flags=re.IGNORECASE)
+    if name_match:
+        name = name_match.group(1).capitalize()
+        return f"My name is {name}, and I am pleased to reach out to you."
+
+    # 2. Intent-based rewrites
+    if lower.startswith("how are you") or lower.startswith("how r u"):
+        return "I hope this message finds you well. How are you doing today?"
+    if lower in ["thank you", "thanks", "thx"]:
+        return "Thank you very much for your time, assistance, and support."
+    if "i will come" in lower or "will come" in lower:
+        return "I will be attending the scheduled meeting as discussed."
+    if "send me" in lower or "send file" in lower:
+        return "Could you please forward the requested documentation at your earliest convenience?"
+    if "i want job" in lower or "need job" in lower:
+        return "I am writing to express my strong interest in exploring potential employment opportunities within your organization."
+    if "tell price" in lower or "what is price" in lower or "how much" in lower:
+        return "Could you please provide the pricing details and quotation for this requirement?"
+    if "where are you" in lower or "where u" in lower:
+        return "Could you please confirm your current availability or location for our discussion?"
+    if "call me" in lower:
+        return "Please feel free to contact me directly at your earliest convenience."
+    if "sorry for late" in lower or "late reply" in lower:
+        return "Please accept my sincere apologies for the delayed response."
+
+    # 3. Phrasal enrichment
     pro_map = {
-        r"i will come to": "I will attend",
-        r"i want to talk": "I would like to discuss",
-        r"can u send": "Could you please provide",
-        r"can you send": "Could you please provide",
-        r"give me": "Please share",
-        r"tell me": "Please let me know",
-        r"im free": "I am available",
-        r"i am free": "I am available",
-        r"i am busy": "I am currently occupied",
-        r"check the docs": "please review the attached documentation",
-        r"check docs": "please review the documentation",
-        r"asap": "at your earliest convenience",
-        r"need this": "we require this",
-        r"bad idea": "that may not be the optimal approach",
-        r"thanks a lot": "Thank you for your assistance",
+        r"\bcheck docs?\b": "please review the attached documentation",
+        r"\bcheck files?\b": "please review the attached files",
+        r"\btell me\b": "please let me know",
+        r"\bgimme\b": "please provide",
+        r"\bwanna\b": "would like to",
+        r"\bgonna\b": "going to",
+        r"\bi want\b": "I would appreciate",
+        r"\bi need\b": "I require",
+        r"\bno problem\b": "it is my pleasure to assist",
+        r"\bnp\b": "you are very welcome",
+        r"\btalk later\b": "I look forward to our upcoming discussion",
+        r"\basap\b": "at your earliest convenience",
+        r"\bfree today\b": "available for a brief discussion today",
+        r"\bare you free\b": "are you available",
+        r"\bcan u do\b": "could you please assist with",
+        r"\bcan you do\b": "would you be able to assist with",
+        r"\bthanks for help\b": "thank you for your valuable assistance",
+        r"\bhelp me\b": "assist me with this matter",
     }
     for pat, rep in pro_map.items():
-        base = re.sub(pat, rep, base, flags=re.IGNORECASE)
+        cleaned = re.sub(pat, rep, cleaned, flags=re.IGNORECASE)
 
-    if base and not base[0].isupper():
-        base = base[0].upper() + base[1:]
-
-    if not base.endswith(".") and not base.endswith("?"):
-        base += "."
-
-    return base
+    if cleaned and not cleaned[0].isupper():
+        cleaned = cleaned[0].upper() + cleaned[1:]
+    if not cleaned.endswith(".") and not cleaned.endswith("?"):
+        cleaned += "."
+    return cleaned
 
 
 def _transform_to_friendly(text: str) -> str:
-    base = _fix_grammar_and_spelling(text).rstrip(".!?")
-    
-    # Warm conversational greeting
-    if not any(base.lower().startswith(g) for g in ["hey", "hello", "hi", "good morning", "good evening"]):
-        base = f"Hey! {base}"
+    cleaned = _fix_grammar_and_spelling(text)
+    lower = cleaned.lower().strip(".!? ")
 
-    if not base.endswith("!") and not base.endswith("?"):
-        base += " 😊"
-    else:
-        base += " 😊"
+    name_match = re.match(r"^(?:i am|my name is|myself|this is|i)\s+([a-zA-Z]+)$", text.strip(), flags=re.IGNORECASE)
+    if name_match:
+        name = name_match.group(1).capitalize()
+        return f"Hey! I'm {name}, so wonderful to connect with you! 😊✨"
 
-    return base
+    if lower.startswith("how are you") or lower.startswith("how r u"):
+        return "Hey there! Hope you're having a wonderful day! How have you been? 😊🌟"
+    if lower in ["thank you", "thanks"]:
+        return "Thank you so much! Really appreciate your help! 😊🙌"
+    if "where are you" in lower or "where u" in lower:
+        return "Hey! Where are you right now? Hope everything is great! 😊📍"
+    if "i will come" in lower or "will come" in lower:
+        return "Hey! Yes, I'll definitely be there! Looking forward to it! 😊🎉"
+
+    base = cleaned.rstrip(".!?")
+    if not any(base.lower().startswith(g) for g in ["hey", "hello", "hi"]):
+        return f"Hey! {base}, hope you're having an awesome day! 😊✨"
+    return f"{base} 😊✨"
 
 
 def _transform_to_casual(text: str) -> str:
-    base = text.strip()
-    base = re.sub(r"\bplease\b", "", base, flags=re.IGNORECASE).strip()
-    base = re.sub(r"\bI would like to\b", "I wanna", base, flags=re.IGNORECASE)
-    base = re.sub(r"\bI am going to\b", "I'm gonna", base, flags=re.IGNORECASE)
-    if base and not base[0].isupper():
-        base = base[0].upper() + base[1:]
-    return base
+    name_match = re.match(r"^(?:i am|my name is|myself|this is|i)\s+([a-zA-Z]+)$", text.strip(), flags=re.IGNORECASE)
+    if name_match:
+        name = name_match.group(1).capitalize()
+        return f"Yo! It's {name} here 😄👍"
+
+    cleaned = _fix_grammar_and_spelling(text).rstrip(".!?")
+    return f"{cleaned} 😄👍"
 
 
 def _transform_to_concise(text: str) -> str:
     cleaned = _fix_grammar_and_spelling(text)
-    # Remove filler words
-    fillers = [r"\bbasically\b", r"\bactually\b", r"\bliterally\b", r"\bjust\b", r"\bkind of\b", r"\bsort of\b"]
+    fillers = [r"\bbasically\b", r"\bactually\b", r"\bliterally\b", r"\bjust\b", r"\bkind of\b", r"\bsort of\b", r"\byou know\b"]
     for f in fillers:
         cleaned = re.sub(f, "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
@@ -159,17 +245,18 @@ def _transform_to_concise(text: str) -> str:
 
 def _translate_text(text: str, target_lang: str) -> str:
     lang_code_map = {
+        "japanese": "ja",
         "tamil": "ta",
         "hindi": "hi",
         "spanish": "es",
         "french": "fr",
         "german": "de",
+        "korean": "ko",
+        "arabic": "ar",
         "telugu": "te",
         "malayalam": "ml",
         "kannada": "kn",
-        "japanese": "ja",
         "chinese": "zh-CN",
-        "arabic": "ar",
         "russian": "ru",
         "italian": "it",
         "portuguese": "pt",
@@ -178,7 +265,7 @@ def _translate_text(text: str, target_lang: str) -> str:
 
     try:
         url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl={code}&dt=t&q={urllib.parse.quote(text)}"
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Linux; Android 10)"})
         with urllib.request.urlopen(req, timeout=3.5) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             if data and isinstance(data, list) and len(data) > 0 and isinstance(data[0], list):
@@ -187,7 +274,20 @@ def _translate_text(text: str, target_lang: str) -> str:
     except Exception as e:
         logger.warning(f"Translation API error for {target_lang}: {e}")
 
-    # Offline translation fallback dictionary for common chat phrases
+    # Offline dictionary fallback for Japanese, Tamil, Hindi
+    offline_japanese = {
+        "hello": "こんにちは",
+        "thank you": "ありがとうございます",
+        "thanks": "ありがとう",
+        "how are you": "お元気ですか？",
+        "i am jeskin": "私はジェスキンです",
+        "i jeskin": "私はジェスキンです",
+        "good morning": "おはようございます",
+        "good night": "おやすみなさい",
+        "yes": "はい",
+        "no": "いいえ",
+        "i will come": "行きます",
+    }
     offline_tamil = {
         "hello": "வணக்கம்",
         "how are you": "எப்படி இருக்கிறீர்கள்?",
@@ -196,6 +296,8 @@ def _translate_text(text: str, target_lang: str) -> str:
         "good night": "இனிய இரவு",
         "i am busy": "நான் வேலையாக இருக்கிறேன்",
         "i will come tomorrow": "நான் நாளை வருகிறேன்",
+        "i am jeskin": "நான் ஜெஸ்கின்",
+        "i jeskin": "நான் ஜெஸ்கின்",
     }
     offline_hindi = {
         "hello": "नमस्ते",
@@ -205,9 +307,13 @@ def _translate_text(text: str, target_lang: str) -> str:
         "good night": "शुभ रात्रि",
         "i am busy": "मैं व्यस्त हूँ",
         "i will come tomorrow": "मैं कल आऊंगा",
+        "i am jeskin": "मैं जेस्किन हूँ",
+        "i jeskin": "मैं जेस्किन हूँ",
     }
 
     t_lower = text.lower().strip(".!? ")
+    if code == "ja" and t_lower in offline_japanese:
+        return offline_japanese[t_lower]
     if code == "ta" and t_lower in offline_tamil:
         return offline_tamil[t_lower]
     if code == "hi" and t_lower in offline_hindi:

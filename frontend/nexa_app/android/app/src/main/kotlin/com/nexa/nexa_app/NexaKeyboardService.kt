@@ -98,11 +98,14 @@ class NexaKeyboardService : InputMethodService() {
             Triple("😊 Friendly", "friendly", null),
             Triple("⚡ Concise", "concise", null),
             Triple("🗣️ Casual", "casual", null),
+            Triple("🇯🇵 Japanese", "translate", "japanese"),
             Triple("🇮🇳 Tamil", "translate", "tamil"),
             Triple("🇮🇳 Hindi", "translate", "hindi"),
             Triple("🇪🇸 Spanish", "translate", "spanish"),
             Triple("🇫🇷 French", "translate", "french"),
-            Triple("🇩🇪 German", "translate", "german")
+            Triple("🇩🇪 German", "translate", "german"),
+            Triple("🇰🇷 Korean", "translate", "korean"),
+            Triple("🇸🇦 Arabic", "translate", "arabic")
         )
 
         for ((label, tone, lang) in chips) {
@@ -287,22 +290,23 @@ class NexaKeyboardService : InputMethodService() {
 
     private fun mapLanguageToCode(lang: String): String {
         return when (lang.lowercase()) {
+            "japanese", "ja" -> "ja"
             "tamil", "ta" -> "ta"
             "hindi", "hi" -> "hi"
             "spanish", "es" -> "es"
             "french", "fr" -> "fr"
             "german", "de" -> "de"
+            "korean", "ko" -> "ko"
+            "arabic", "ar" -> "ar"
             "telugu", "te" -> "te"
             "malayalam", "ml" -> "ml"
             "kannada", "kn" -> "kn"
             "bengali", "bn" -> "bn"
             "marathi", "mr" -> "mr"
             "gujarati", "gu" -> "gu"
-            "arabic", "ar" -> "ar"
-            "japanese", "ja" -> "ja"
             "russian", "ru" -> "ru"
             "chinese", "zh" -> "zh-CN"
-            else -> "ta"
+            else -> "ja"
         }
     }
 
@@ -312,7 +316,7 @@ class NexaKeyboardService : InputMethodService() {
             val url = URL("https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=$langCode&dt=t&q=$encoded")
             val conn = url.openConnection() as HttpURLConnection
             conn.requestMethod = "GET"
-            conn.setRequestProperty("User-Agent", "Mozilla/5.0")
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 10)")
             conn.connectTimeout = 3000
             conn.readTimeout = 4000
 
@@ -343,24 +347,36 @@ class NexaKeyboardService : InputMethodService() {
 
     private fun offlineTranslateFallback(text: String, langCode: String): String {
         val tLower = text.lowercase().trim('.', '!', '?', ' ')
+        val japaneseMap = mapOf(
+            "hello" to "こんにちは", "hi" to "こんにちは", "how are you" to "お元気ですか？",
+            "thank you" to "ありがとうございます", "thanks" to "ありがとう", "good morning" to "おはようございます",
+            "good night" to "おやすみなさい", "i am jeskin" to "私はジェスキンです", "i jeskin" to "私はジェスキンです",
+            "i will come" to "行きます", "i will come tomorrow" to "明日行きます",
+            "where are you" to "どこにいますか？", "yes" to "はい", "no" to "いいえ", "ok" to "了解です",
+            "see you later" to "また後で", "please" to "お願いします", "sorry" to "ごめんなさい"
+        )
         val tamilMap = mapOf(
             "hello" to "வணக்கம்", "hi" to "வணக்கம்", "how are you" to "நீங்கள் எப்படி இருக்கிறீர்கள்?",
             "thank you" to "நன்றி", "thanks" to "நன்றி", "good morning" to "காலை வணக்கம்",
-            "good night" to "இனிய இரவு", "i will come" to "நான் வருகிறேன்",
-            "i will come tomorrow" to "நான் நாளை வருகிறேன்", "where are you" to "நீங்கள் எங்கே இருக்கிறீர்கள்?",
-            "yes" to "ஆம்", "no" to "இல்லை", "ok" to "சரி", "see you later" to "பிறகு சந்திப்போம்"
+            "good night" to "இனிய இரவு", "i will come" to "நான் வருகிறேன்", "i am jeskin" to "நான் ஜெஸ்கின்",
+            "i jeskin" to "நான் ஜெஸ்கின்", "i will come tomorrow" to "நான் நாளை வருகிறேன்",
+            "where are you" to "நீங்கள் எங்கே இருக்கிறீர்கள்?", "yes" to "ஆம்", "no" to "இல்லை",
+            "ok" to "சரி", "see you later" to "பிறகு சந்திப்போம்"
         )
         val hindiMap = mapOf(
             "hello" to "नमस्ते", "hi" to "नमस्ते", "how are you" to "आप कैसे हैं?",
             "thank you" to "धन्यवाद", "thanks" to "धन्यवाद", "good morning" to "शुभ प्रभात",
-            "good night" to "शुभ रात्रि", "i will come" to "मैं आऊंगा",
-            "i will come tomorrow" to "मैं कल आऊंगा", "where are you" to "आप कहाँ हैं?",
-            "yes" to "हाँ", "no" to "नहीं", "ok" to "ठीक है", "see you later" to "बाद में मिलते हैं"
+            "good night" to "शुभ रात्रि", "i will come" to "मैं आऊंगा", "i am jeskin" to "मैं जेस्किन हूँ",
+            "i jeskin" to "मैं जेस्किन हूँ", "i will come tomorrow" to "मैं कल आऊंगा",
+            "where are you" to "आप कहाँ हैं?", "yes" to "हाँ", "no" to "नहीं", "ok" to "ठीक है",
+            "see you later" to "बाद में मिलते हैं"
         )
 
+        if (langCode == "ja" && japaneseMap.containsKey(tLower)) return japaneseMap[tLower]!!
         if (langCode == "ta" && tamilMap.containsKey(tLower)) return tamilMap[tLower]!!
         if (langCode == "hi" && hindiMap.containsKey(tLower)) return hindiMap[tLower]!!
         return when (langCode) {
+            "ja" -> "日本語: $text"
             "ta" -> "வணக்கம்: $text"
             "hi" -> "नमस्ते: $text"
             else -> "[$langCode]: $text"
@@ -368,36 +384,74 @@ class NexaKeyboardService : InputMethodService() {
     }
 
     private fun transformTone(text: String, tone: String): String {
-        var res = fixGrammarAndSpelling(text)
+        val grammarFixed = fixGrammarAndSpelling(text)
+        val lower = grammarFixed.lowercase().trim('.', '!', '?', ' ')
 
         when (tone) {
             "professional" -> {
+                // 1. Self-introduction pattern (e.g. "I am Jeskin", "i jeskin", "my name is jeskin")
+                val nameMatch = Regex("(?i)^(?:i am|my name is|myself|this is|i)\\s+([a-zA-Z]+)$").find(text.trim())
+                if (nameMatch != null) {
+                    val name = nameMatch.groupValues[1].replaceFirstChar { it.uppercase() }
+                    return "My name is $name, and I am pleased to reach out to you."
+                }
+
+                // 2. Intent-based professional rewrites
+                if (lower.startsWith("how are you") || lower.startsWith("how r u") || lower == "how do you do") {
+                    return "I hope this message finds you well. How are you doing today?"
+                }
+                if (lower == "thank you" || lower == "thanks" || lower == "thx") {
+                    return "Thank you very much for your time, assistance, and support."
+                }
+                if (lower.contains("i will come") || lower.contains("will come") || lower.contains("coming tomorrow")) {
+                    return "I will be attending the scheduled meeting as discussed."
+                }
+                if (lower.contains("send me") || lower.contains("send file") || lower.contains("give file")) {
+                    return "Could you please forward the requested documentation at your earliest convenience?"
+                }
+                if (lower.contains("i want job") || lower.contains("need job") || lower.contains("job opening")) {
+                    return "I am writing to express my strong interest in exploring potential employment opportunities within your organization."
+                }
+                if (lower.contains("tell price") || lower.contains("what is price") || lower.contains("how much")) {
+                    return "Could you please provide the pricing details and quotation for this requirement?"
+                }
+                if (lower.contains("where are you") || lower.contains("where u")) {
+                    return "Could you please confirm your current availability or location for our discussion?"
+                }
+                if (lower.contains("call me") || lower.contains("ring me")) {
+                    return "Please feel free to contact me directly at your earliest convenience."
+                }
+                if (lower.contains("sorry for late") || lower.contains("late reply")) {
+                    return "Please accept my sincere apologies for the delayed response."
+                }
+
+                // 3. Phrasal enrichment for general professional texts
+                var res = grammarFixed
                 val profReplacements = mapOf(
-                    "\\bi will come\\b" to "I will be attending",
-                    "\\bwill come\\b" to "will be attending",
                     "\\bcheck docs?\\b" to "please review the attached documentation",
                     "\\bcheck files?\\b" to "please review the attached files",
                     "\\btell me\\b" to "please let me know",
-                    "\\bcall me\\b" to "please feel free to contact me at your earliest convenience",
                     "\\bgimme\\b" to "please provide",
                     "\\bwanna\\b" to "would like to",
                     "\\bgonna\\b" to "going to",
                     "\\bi want\\b" to "I would appreciate",
+                    "\\bi need\\b" to "I require",
                     "\\bno problem\\b" to "it is my pleasure to assist",
-                    "\\bnp\\b" to "you are welcome",
-                    "\\btalk later\\b" to "I look forward to speaking with you soon",
+                    "\\bnp\\b" to "you are very welcome",
+                    "\\btalk later\\b" to "I look forward to our upcoming discussion",
                     "\\basap\\b" to "at your earliest convenience",
                     "\\bfree today\\b" to "available for a brief discussion today",
                     "\\bare you free\\b" to "are you available",
-                    "\\bsorry for late\\b" to "apologies for the delayed response",
-                    "\\bsend me\\b" to "could you please forward",
                     "\\bcan u do\\b" to "could you please assist with",
-                    "\\bcan you do\\b" to "could you please assist with",
-                    "\\bthanks for help\\b" to "thank you for your valuable assistance"
+                    "\\bcan you do\\b" to "would you be able to assist with",
+                    "\\bthanks for help\\b" to "thank you for your valuable assistance",
+                    "\\bhelp me\\b" to "assist me with this matter",
+                    "\\bfix this\\b" to "resolve this issue"
                 )
                 for ((pattern, replacement) in profReplacements) {
                     res = res.replace(Regex("(?i)$pattern"), replacement)
                 }
+
                 res = capitalizeSentences(res)
                 if (!res.endsWith(".") && !res.endsWith("!") && !res.endsWith("?")) {
                     res += "."
@@ -406,24 +460,53 @@ class NexaKeyboardService : InputMethodService() {
             }
 
             "friendly" -> {
-                val clean = res.trimEnd('.', '!', '?')
+                // 1. Self-introduction pattern
+                val nameMatch = Regex("(?i)^(?:i am|my name is|myself|this is|i)\\s+([a-zA-Z]+)$").find(text.trim())
+                if (nameMatch != null) {
+                    val name = nameMatch.groupValues[1].replaceFirstChar { it.uppercase() }
+                    return "Hey! I'm $name, so wonderful to connect with you! 😊✨"
+                }
+
+                // 2. Greetings and questions
+                if (lower.startsWith("how are you") || lower.startsWith("how r u")) {
+                    return "Hey there! Hope you're having a wonderful day! How have you been? 😊🌟"
+                }
+                if (lower == "thank you" || lower == "thanks") {
+                    return "Thank you so much! Really appreciate your help! 😊🙌"
+                }
+                if (lower.contains("where are you") || lower.contains("where u")) {
+                    return "Hey! Where are you right now? Hope everything is great! 😊📍"
+                }
+                if (lower.contains("i will come") || lower.contains("will come")) {
+                    return "Hey! Yes, I'll definitely be there! Looking forward to it! 😊🎉"
+                }
+
+                // 3. General friendly framing
+                val clean = grammarFixed.trimEnd('.', '!', '?')
                 return if (!clean.startsWith("Hey", ignoreCase = true) && !clean.startsWith("Hi", ignoreCase = true)) {
-                    "Hey! $clean 😊"
+                    "Hey! $clean, hope you're having an awesome day! 😊✨"
                 } else {
-                    "$clean 😊"
+                    "$clean 😊✨"
                 }
             }
 
             "casual" -> {
-                val clean = res.trimEnd('.', '!', '?')
-                return "$clean 😄"
+                val nameMatch = Regex("(?i)^(?:i am|my name is|myself|this is|i)\\s+([a-zA-Z]+)$").find(text.trim())
+                if (nameMatch != null) {
+                    val name = nameMatch.groupValues[1].replaceFirstChar { it.uppercase() }
+                    return "Yo! It's $name here 😄👍"
+                }
+                val clean = grammarFixed.trimEnd('.', '!', '?')
+                return "$clean 😄👍"
             }
 
             "concise" -> {
                 val fillerWords = listOf(
                     "\\bactually\\b", "\\bjust\\b", "\\bbasically\\b", "\\bliterally\\b",
-                    "\\bkind of\\b", "\\bsort of\\b", "\\byou know\\b", "\\bI mean\\b"
+                    "\\bkind of\\b", "\\bsort of\\b", "\\byou know\\b", "\\bI mean\\b",
+                    "\\bto be honest\\b", "\\bfor the matter\\b"
                 )
+                var res = grammarFixed
                 for (f in fillerWords) {
                     res = res.replace(Regex("(?i)$f"), "")
                 }
@@ -432,8 +515,8 @@ class NexaKeyboardService : InputMethodService() {
                 return capitalizeSentences(clean) + "."
             }
 
-            else -> { // grammar_fix / default
-                res = capitalizeSentences(res)
+            else -> { // grammar_fix
+                var res = capitalizeSentences(grammarFixed)
                 if (!res.endsWith(".") && !res.endsWith("!") && !res.endsWith("?")) {
                     res += "."
                 }
@@ -444,6 +527,31 @@ class NexaKeyboardService : InputMethodService() {
 
     private fun fixGrammarAndSpelling(text: String): String {
         var res = text.trim()
+
+        // 1. Missing "am" in "I <name/noun/adjective>" (e.g. "i jeskin" -> "I am Jeskin", "i ready" -> "I am ready")
+        val iNounPattern = Regex("(?i)^i\\s+([a-zA-Z]+)$")
+        val match = iNounPattern.find(res)
+        if (match != null) {
+            val word = match.groupValues[1]
+            val nonAuxVerbs = listOf(
+                "will", "can", "have", "am", "do", "did", "want", "need", "think",
+                "know", "see", "feel", "went", "saw", "got", "like", "love", "hate",
+                "hope", "wish", "mean", "understand", "agree", "believe", "came", "come"
+            )
+            if (!nonAuxVerbs.contains(word.lowercase())) {
+                val capitalizedWord = word.replaceFirstChar { it.uppercase() }
+                return "I am $capitalizedWord"
+            }
+        }
+
+        // Inline "i <name/adj>" patterns like "hello i jeskin", "hi i rahul"
+        res = res.replace(Regex("(?i)\\b(?:hello|hi|hey)\\s+i\\s+([a-zA-Z]+)\\b")) { m ->
+            val greeting = m.groupValues[0].split(" ")[0].replaceFirstChar { it.uppercase() }
+            val name = m.groupValues[1].replaceFirstChar { it.uppercase() }
+            "$greeting, I am $name"
+        }
+
+        // 2. Chat Abbreviations & Typos
         val typos = mapOf(
             "\\bu\\b" to "you",
             "\\bur\\b" to "your",
@@ -489,12 +597,29 @@ class NexaKeyboardService : InputMethodService() {
             "\\bwanna\\b" to "want to",
             "\\bgonna\\b" to "going to",
             "\\bgotta\\b" to "got to",
-            "\\bkinda\\b" to "kind of"
+            "\\bkinda\\b" to "kind of",
+            "\\bwhere u\\b" to "where are you",
+            "\\bwhere you\\b" to "where are you",
+            "\\bhow u\\b" to "how are you",
+            "\\bhow you\\b" to "how are you",
+            "\\bwho u\\b" to "who are you",
+            "\\bwho you\\b" to "who are you",
+            "\\bwhat u doing\\b" to "what are you doing",
+            "\\bwhy u\\b" to "why are you",
+            "\\btell to me\\b" to "tell me",
+            "\\bdiscuss about\\b" to "discuss",
+            "\\brevert back\\b" to "reply",
+            "\\bmy self\\b" to "I am"
         )
 
         for ((pattern, replacement) in typos) {
             res = res.replace(Regex("(?i)$pattern"), replacement)
         }
+
+        // 3. Subject-Verb agreement fixes
+        res = res.replace(Regex("(?i)\\b(he|she|it)\\s+go\\b"), "$1 goes")
+            .replace(Regex("(?i)\\b(he|she|it)\\s+have\\b"), "$1 has")
+            .replace(Regex("(?i)\\b(they|we|you)\\s+is\\b"), "$1 are")
 
         return res
     }

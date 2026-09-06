@@ -29,11 +29,16 @@ class _AiKeyboardScreenState extends State<AiKeyboardScreen> {
   ];
 
   final List<Map<String, String>> _languages = [
+    {'id': 'japanese', 'name': '日本語 (Japanese)', 'flag': '🇯🇵'},
     {'id': 'tamil', 'name': 'தமிழ் (Tamil)', 'flag': '🇮🇳'},
     {'id': 'hindi', 'name': 'हिंदी (Hindi)', 'flag': '🇮🇳'},
     {'id': 'spanish', 'name': 'Spanish', 'flag': '🇪🇸'},
     {'id': 'french', 'name': 'French', 'flag': '🇫🇷'},
     {'id': 'german', 'name': 'German', 'flag': '🇩🇪'},
+    {'id': 'korean', 'name': '한국어 (Korean)', 'flag': '🇰🇷'},
+    {'id': 'arabic', 'name': 'العربية (Arabic)', 'flag': '🇸🇦'},
+    {'id': 'telugu', 'name': 'తెలుగు (Telugu)', 'flag': '🇮🇳'},
+    {'id': 'malayalam', 'name': 'മലയാളം (Malayalam)', 'flag': '🇮🇳'},
   ];
 
   @override
